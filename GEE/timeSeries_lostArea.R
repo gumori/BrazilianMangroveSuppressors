@@ -96,3 +96,4 @@ legend("topleft", c('MapBiomas', 'Hansen'),
        col = c('darkorange', 'blue'),
        pch = rep(20,20), x.intersp = 0.3, bty = "n", cex = 1.0, pt.cex = 1.5)
 
+#### Mudança do script pra teste do git
