@@ -1,5 +1,5 @@
 # estudo e exemplos de séries temporais
-
+# ...
 # maneiras de criar uma série temporal no R
 # link: https://www.tutorialspoint.com/r/r_time_series_analysis.htm
 
