@@ -146,7 +146,7 @@ barplot(somaMapbiomas, col = 'darkorange',
         ylim = c(0,1000))
 
 
-# agora vou tentar plotar os dois graficos de barras juntos
+# agora vamos plotar os dois graficos de barras juntos
 rbindfunction = rbind(somaHansen, somaMapbiomas)
 print(rbindfunction)
 
@@ -163,3 +163,93 @@ legend("topleft",
 box(bty = "L")
 
 ## fazendo um teste do github
+
+# dica: pivot_wider() = troca linha por coluna
+
+# ANÁLISE DOS DADOS
+# vamos olhar para os nossos dados para organiza-los, caso necessário:
+print(data_lostArea)
+print(dataHansen_lostArea)
+print(data_lostArea_sa)
+print(dataHansen_lostArea_sa)
+print(perdaAnualBr)
+print(perdaAnual)
+print(perdaAnual_han)
+print(somaMapbiomas)
+print(somaHansen)
+
+# organização dos dados
+dataset <- read.table("dataset_atual.tsv", sep = "\t", header = T)
+print(dataset)
+
+#criando um dado tsibble
+dataset_tsibble = dataset %>% 
+  as_tsibble(
+    index = year,
+    key = region
+  )
+
+print(dataset_tsibble)
+
+# diferentes plots
+
+dataset_tsibble %>% 
+  filter(region == "antonio") %>% 
+  autoplot(arealost_mapbiomas)
+
+dataset_tsibble %>% 
+  filter(region != "antonio") %>% 
+  autoplot(arealost_mapbiomas) +
+  labs(x="Ano",y="Área perdida")
+
+# para plotar em diferentes "caixinhas"
+
+dataset_tsibble %>% 
+  filter(region != "antonio") %>% 
+  autoplot(arealost_gfc) +
+  facet_wrap(~region, scales = "free")
+
+# autocorrelação
+
+dataset_tsibble %>% 
+  filter(region == "orange") %>% 
+  ACF(arealost_mapbiomas, lag_max = 20)
+
+dataset_tsibble %>% 
+  filter(region != "orange") %>% 
+  ACF(arealost_mapbiomas, lag_max = 20) %>%
+  autoplot()
+
+# decomposição
+
+dataset_tsibble %>% 
+  model(STL(arealost_mapbiomas)) %>% 
+  components()
+
+dataset_tsibble %>% 
+  model(STL(arealost_mapbiomas)) %>% 
+  components() %>% 
+  autoplot()
+
+# arealost_gfc dá errado pq falta 7 dados (ano 2000)
+dataset_tsibble %>% 
+  model(STL(arealost_gfc)) %>% 
+  components() %>% 
+  autoplot()
+
+# força da tendencia e sazonalidade
+
+dataset_tsibble %>% 
+  features(arealost_mapbiomas, feat_stl)
+
+dataset_tsibble %>%
+  features(arealost_mapbiomas, feat_stl) %>%
+  ggplot(aes(x = trend_strength, y = spikiness, col = region)) +
+  geom_point() + 
+  facet_wrap(vars(region))
+
+dataset_tsibble %>%
+  features(arealost_mapbiomas, feat_stl) %>%
+  ggplot(aes(x = trend_strength, y = curvature, col = region)) +
+  geom_point() + 
+  facet_wrap(vars(region))
