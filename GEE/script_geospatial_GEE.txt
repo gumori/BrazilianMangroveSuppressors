@@ -1,0 +1,2839 @@
+/*
+   Code to filter annual classifications of land use and land cover (LULC) in Brazil
+   between 2000 and 2020 and calculate the area of loss and gain of mangrove 
+   and LULCs that occupied mangrove areas in this period
+*/
+
+// loading data:
+
+var LULC = ee.Image('projects/mapbiomas-workspace/public/collection7_1/mapbiomas_collection71_integration_v1');
+print(LULC, 'LULCs from 1985 to 2021');
+
+// Selecting the 'mangrove' class and binarizing:
+
+var mgv = LULC.mask(LULC.eq(5)).divide(5);
+print(mgv, 'Mangroves from 1985 to 2021');
+
+// list of desired band names:
+
+var bandNames = ['classification_1999', 'classification_2000', 'classification_2001', 'classification_2002',
+                 'classification_2003', 'classification_2004', 'classification_2005', 'classification_2006',
+                 'classification_2007', 'classification_2008', 'classification_2009', 'classification_2010',
+                 'classification_2011', 'classification_2012', 'classification_2013', 'classification_2014',
+                 'classification_2015', 'classification_2016', 'classification_2017', 'classification_2018',
+                 'classification_2019', 'classification_2020'];
+
+// function to assign a single band to different variables:
+
+function getYears(img, bandNames) {
+  var variables = [];
+  
+  for (var i = 0; i < bandNames.length; i++) {
+    var bandName = bandNames[i];
+    var band = img.select(bandName);
+    var variableName = 'band_' + bandName;
+    variables.push(variableName = band);
+  }
+  
+  return variables;
+}
+
+var mgv9920 = getYears(mgv, bandNames);
+print(mgv9920, 'Mangroves from 1999 to 2020');
+
+// selecting the 'non-mangrove' class and binarizing:
+
+var nonmgv = LULC.mask(LULC.neq(5)).divide(5);
+print(nonmgv, 'Non-mangroves from 1985 to 2021');
+
+var nonmgv9920 = getYears(nonmgv, bandNames);
+print(nonmgv9920, 'Non-mangroves from 1999 to 2020');
+
+// create a list to contain image integration:
+
+var loss = ee.List([]);
+
+for (var i = 1; i < bandNames.length; i++) {
+  // selecting areas that ceased to be mangroves in consecutive years
+  var loss = loss.add(nonmgv9920[i].neq(mgv9920[i-1]));
+}
+
+print(loss, 'Loss mangroves from 2000 - 2020');
+
+// visualization:
+
+//Map.addLayer(nonmgv9920[1], {palette:['de2c53']}, 'Non-mangrove - 2000'); // non-mangrove 2000 (purple)
+//Map.addLayer(mgv9920[18], {palette:['45fc03']}, 'Mangrove - 1999'); // mangrove 1999 (green)
+
+// selecting an image from the list
+
+var lossImg00 = ee.Image(loss.get(0));
+//Map.addLayer(lossImg00, {palette:['0000FF']}, 'Loss - 2000'); // loss mangrove 2000 (blue)
+
+// turn the list into a collection of images:
+
+var lossCollection = ee.ImageCollection(loss);
+print(lossCollection, 'Loss mangroves from 2000 - 2020')
+
+// function to apply unmask to each image in the list
+
+var applyUnmask = function(img) {
+  return ee.Image(img).unmask(0);
+};
+
+var mgvUnmasked = mgv9920.map(applyUnmask);
+print(mgvUnmasked, 'List of unmasked images:');
+
+// create a list to contain image integration:
+
+var gain = ee.List([]);
+
+for (var i = 1; i < bandNames.length; i++) {
+  // select areas that became mangroves in consecutive years
+  var gain = gain.add(mgvUnmasked[i].neq(mgvUnmasked[i-1]));
+}
+
+// selecting an image from the list
+
+var gainImg00 = ee.Image(gain.get(0));
+//Map.addLayer(gainImg00, {palette:['FFFF00']}, 'Gain - 2000'); // gain mangrove 2000 (yellow)
+
+// turn the list into a collection of images:
+
+var gainCollection = ee.ImageCollection(gain)
+print(gainCollection, 'Gain mangroves from 2000 - 2020')
+
+// defining spatial units (study area)
+
+/* selecting the state boundaries for each of the states that have mangroves in their territory:
+   a table with the shapefiles of the states was assigned to the variable 'estados' */
+
+var AP = estados.filterMetadata('sigla', 'equals', 'AP');
+var PA = estados.filterMetadata('sigla', 'equals', 'PA');
+var MA = estados.filterMetadata('sigla', 'equals', 'MA');
+var PI = estados.filterMetadata('sigla', 'equals', 'PI');
+var CE = estados.filterMetadata('sigla', 'equals', 'CE');
+var RN = estados.filterMetadata('sigla', 'equals', 'RN');
+var PB = estados.filterMetadata('sigla', 'equals', 'PB');
+var PE = estados.filterMetadata('sigla', 'equals', 'PE');
+var AL = estados.filterMetadata('sigla', 'equals', 'AL');
+var SE = estados.filterMetadata('sigla', 'equals', 'SE');
+var BA = estados.filterMetadata('sigla', 'equals', 'BA');
+var ES = estados.filterMetadata('sigla', 'equals', 'ES');
+var RJ = estados.filterMetadata('sigla', 'equals', 'RJ');
+var SP = estados.filterMetadata('sigla', 'equals', 'SP');
+var PR = estados.filterMetadata('sigla', 'equals', 'PR');
+var SC = estados.filterMetadata('sigla', 'equals', 'SC');
+
+// grouping all states a variable:
+
+var states = AP.merge(PA).merge(MA).merge(PI).merge(CE)
+               .merge(RN).merge(PB).merge(PE).merge(AL)
+               .merge(SE).merge(BA).merge(ES).merge(RJ)
+               .merge(SP).merge(PR).merge(SC);
+print(states, 'states')
+//Map.addLayer(states, {width: 1}, 'Estados do Brasil'); 
+
+// defining polygons according to latitudinal boundary coordinates (Schaeffer-Novelli 1990)
+
+ var regions = ee.Geometry.MultiPolygon([
+  ee.Geometry.Polygon([[-51.85,4.51], [-51.85,1.67], [-49.77,1.67], [-49.77,4.51]]),
+  ee.Geometry.Polygon([[-51.85,1.67], [-51.85,-0.60], [-48.21,-0.60], [-48.21,1.67]]),
+  ee.Geometry.Polygon([[-51.85,-2.25], [-51.85,-0.60], [-44.14,-0.60], [-44.14,-2.25]]),
+  ee.Geometry.Polygon([[-35.53,-5.14], [-35.53,-2.25], [-48.21,-2.25], [-48.21,-5.14]]),
+  ee.Geometry.Polygon([[-34.32,-13.00], [-34.32,-5.14], [-44.14,-5.14], [-44.14,-13.00]]),
+  ee.Geometry.Polygon([[-34.32,-23.01], [-34.32,-13.00], [-48.21,-13.00], [-48.21,-23.01]]),
+  ee.Geometry.Polygon([[-42.44,-29.33], [-42.44,-23.01], [-51.85,-23.01], [-51.85,-29.33]])
+]);
+print(regions, 'Coordinates of climatically- and phytophysionomically similar segments')
+//Map.addLayer(regions, {width: 1, color: 'F4A460'}, 'Climatically- and phytophysionomically similar segments');
+
+
+// defining each segment in a separate variable:
+
+var region1 = ee.Geometry.Polygon([[-51.85,4.51], [-51.85,1.67], [-49.77,1.67], [-49.77,4.51]]);
+var region2 = ee.Geometry.Polygon([[-51.85,1.67], [-51.85,-0.60], [-48.21,-0.60], [-48.21,1.67]]);
+var region3 = ee.Geometry.Polygon([[-51.85,-2.25], [-51.85,-0.60], [-44.14,-0.60], [-44.14,-2.25]]);
+var region4 = ee.Geometry.Polygon([[-35.53,-5.14], [-35.53,-2.25], [-48.21,-2.25], [-48.21,-5.14]]);
+var region5 = ee.Geometry.Polygon([[-34.32,-13.00], [-34.32,-5.14], [-44.14,-5.14], [-44.14,-13.00]]);
+var region6 = ee.Geometry.Polygon([[-34.32,-23.01], [-34.32,-13.00], [-48.21,-13.00], [-48.21,-23.01]]);
+var region7 = ee.Geometry.Polygon([[-42.44,-29.33], [-42.44,-23.01], [-51.85,-23.01], [-51.85,-29.33]]);
+
+
+// calculating the area of loss and gain of mangroves
+
+// function to calculate the area of a specific region:
+
+var calculateArea = function(image, region, regionName) {
+  var area = image.multiply(ee.Image.pixelArea())
+    .divide(1000000) // for km²
+    .reduceRegion({
+      reducer: ee.Reducer.sum(),
+      geometry: region,
+      scale: 30,
+      bestEffort: true, 
+  });
+  
+  return ee.Feature(null, { 'area': area, 'region': regionName});
+};
+
+// function to apply the area calculation for each region in each of the images in the collection:
+
+var lossArea_regions = lossCollection.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Região 1'),
+    calculateArea(image, region2, 'Região 2'),
+    calculateArea(image, region3, 'Região 3'),
+    calculateArea(image, region4, 'Região 4'),
+    calculateArea(image, region5, 'Região 5'),
+    calculateArea(image, region6, 'Região 6'),
+    calculateArea(image, region7, 'Região 7')
+  ]);
+  return features;
+}).flatten();
+
+// loss:
+print(lossArea_regions, 'Mangroves area loss for each segment from 2000 - 2020');
+
+
+var gainArea_regions = gainCollection.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Região 1'),
+    calculateArea(image, region2, 'Região 2'),
+    calculateArea(image, region3, 'Região 3'),
+    calculateArea(image, region4, 'Região 4'),
+    calculateArea(image, region5, 'Região 5'),
+    calculateArea(image, region6, 'Região 6'),
+    calculateArea(image, region7, 'Região 7')
+  ]);
+  return features;
+}).flatten();
+
+// gain:
+print(gainArea_regions, 'Mangroves area gain for each segment from 2000 - 2020');
+
+
+// function to apply the area calculation for each state in each of the images in the collection:
+
+var lossArea_states = lossCollection.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+// loss:
+print(lossArea_states, 'Mangroves area loss for each state from 2000 - 2020');
+
+
+var gainArea_states = gainCollection.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+// gain:
+print(gainArea_states, 'Mangroves area gain for each state from 2000 - 2020');
+
+/* applying previous methods to different LULCs, 
+   we intend to identify mangrove conversions by other use or cover */
+   
+// land cover:
+var ff = LULC.mask(LULC.eq(3)).divide(3); // formação florestal | forest formation
+var fs = LULC.mask(LULC.eq(4)).divide(4); // formação savânica | savanna formation
+var fc = LULC.mask(LULC.eq(12)).divide(12); // formação campestre | grassland
+var ra = LULC.mask(LULC.eq(49)).divide(49); // restinga arborizada | wooded sandbank vegetation
+var rh = LULC.mask(LULC.eq(50)).divide(50); // restinga herbácea | herbaceous sandbank vegetation
+var ap = LULC.mask(LULC.eq(32)).divide(32); // apicum | salt flat
+var cap = LULC.mask(LULC.eq(11)).divide(11); // campos alagados e área pantanosa | wetland
+var onv = LULC.mask(LULC.eq(25)).divide(25); // outras áreas não vegetadas | other non vegetation area
+var onf = LULC.mask(LULC.eq(13)).divide(13); // outras formações não florestais | other non forest formation
+var rlo = LULC.mask(LULC.eq(33)).divide(33); // rio, lago e oceano | river, lake and ocean
+var pda = LULC.mask(LULC.eq(23)).divide(23); // praia, duna e areal | beach, dune and sand spot
+
+// land use:
+var pa = LULC.mask(LULC.eq(15)).divide(15); // pastagem | pasture
+var ca = LULC.mask(LULC.eq(20)).divide(20); // cana de açúcar | sugar cane
+var ar = LULC.mask(LULC.eq(40)).divide(40); // arroz | rice
+var lt = LULC.mask(LULC.eq(19)).divide(19); // lavouras temporárias | temporary crop
+var olt = LULC.mask(LULC.eq(41)).divide(41); // outras lavouras temporárias | other temporary crop
+var lp = LULC.mask(LULC.eq(36)).divide(36); // lavouras perenes | perinnial crop
+var olp = LULC.mask(LULC.eq(48)).divide(48); // outras lavouras perenes (Caju e Dendê) | other perinnial crop (cashew and oil palm)
+var au = LULC.mask(LULC.eq(24)).divide(24); // área urbanizada | urban area
+var aq = LULC.mask(LULC.eq(31)).divide(31); // aquicultura | aquaculture
+
+// defining the years of interest:
+
+var ff9920 = getYears(ff, bandNames);
+var fs9920 = getYears(fs, bandNames);
+var fc9920 = getYears(fc, bandNames);
+var ra9920 = getYears(ra, bandNames);
+var rh9920 = getYears(rh, bandNames);
+var ap9920 = getYears(ap, bandNames);
+var cap9920 = getYears(cap, bandNames);
+var onv9920 = getYears(onv, bandNames);
+var onf9920 = getYears(onf, bandNames);
+var rlo9920 = getYears(rlo, bandNames);
+var pda9920 = getYears(pda, bandNames);
+var pa9920 = getYears(pa, bandNames);
+var ca9920 = getYears(ca, bandNames);
+var ar9920 = getYears(ar, bandNames);
+var lt9920 = getYears(lt, bandNames);
+var olt9920 = getYears(olt, bandNames);
+var lp9920 = getYears(lp, bandNames);
+var olp9920 = getYears(olp, bandNames);
+var au9920 = getYears(au, bandNames);
+var aq9920 = getYears(aq, bandNames);
+
+/* visualization:
+
+Map.addLayer(ff9920, 'forest formation from 1999 to 2020');
+print(ff9920, 'forest formation from 1999 to 2020');
+
+Map.addLayer(fs9920, 'savanna formation from 1999 to 2020');
+print(fs9920, 'savanna formation from 1999 to 2020');
+
+Map.addLayer(fc9920, 'grassland from 1999 to 2020');
+print(fc9920, 'grassland from 1999 to 2020');
+
+Map.addLayer(ra9920, 'wooded sandbank vegetation from 1999 to 2020');
+print(ra9920, 'wooded sandbank vegetation from 1999 to 2020');
+
+Map.addLayer(rh9920, 'herbaceous sandbank vegetation from 1999 to 2020');
+print(rh9920, 'herbaceous sandbank vegetation from 1999 to 2020');
+
+Map.addLayer(ap9920, 'salt flat from 1999 to 2020');
+print(ap9920, 'salt flat from 1999 to 2020');
+
+Map.addLayer(cap9920, 'wetland from 1999 to 2020');
+print(cap9920, 'wetland from 1999 to 2020');
+
+Map.addLayer(onv9920, 'other non vegetated areas from 1999 to 2020');
+print(onv9920, 'other non vegetated areas from 1999 to 2020');
+
+Map.addLayer(onf9920, 'other non forest formations from 1999 to 2020');
+print(onf9920, 'other non forest formations from 1999 to 2020');
+
+Map.addLayer(rlo9920, 'river, lake and ocean from 1999 to 2020');
+print(rlo9920, 'river, lake and ocean from 1999 to 2020');
+
+Map.addLayer(pda9920, 'beach, dune and sand spot from 1999 to 2020');
+print(pda9920, 'beach, dune and sand spot from 1999 to 2020');
+
+Map.addLayer(pa9920, 'pasture from 1999 to 2020');
+print(pa9920, 'pasture from 1999 to 2020');
+
+Map.addLayer(ca9920, 'sugar cane from 1999 to 2020');
+print(ca9920, 'sugar cane from 1999 to 2020');
+
+Map.addLayer(ar9920, 'rice from 1999 to 2020');
+print(ar9920, 'rice from 1999 to 2020');
+
+Map.addLayer(lt9920, 'temporary crop from 1999 to 2020');
+print(lt9920, 'temporary crop from 1999 to 2020');
+
+Map.addLayer(olt9920, 'other temporary crop from 1999 to 2020');
+print(olt9920, 'other temporary crop from 1999 to 2020');
+
+Map.addLayer(lp9920, 'perennial crop from 1999 to 2020');
+print(lp9920, 'perennial crop from 1999 to 2020');
+
+Map.addLayer(olp9920, 'other perennial crop from 1999 to 2020');
+print(olp9920, 'other perennial crop from 1999 to 2020');
+
+Map.addLayer(au9920, 'urban areas from 1999 to 2020');
+print(au9920, 'urban areas from 1999 to 2020');
+
+Map.addLayer(aq9920, 'aquaculture from 1999 to 2020');
+print(aq9920, 'aquaculture from 1999 to 2020');
+*/
+
+// integration (conversion of mangrove areas)
+
+// creating empty lists for each LULC:
+
+var cnvff = ee.List([]);
+var cnvfs = ee.List([]);
+var cnvfc = ee.List([]);
+var cnvra = ee.List([]);
+var cnvrh = ee.List([]);
+var cnvap = ee.List([]);
+var cnvcap = ee.List([]);
+var cnvonv = ee.List([]);
+var cnvonf = ee.List([]);
+var cnvrlo = ee.List([]);
+var cnvpda = ee.List([]);
+var cnvpa = ee.List([]);
+var cnvca = ee.List([]);
+var cnvar = ee.List([]);
+var cnvlt = ee.List([]);
+var cnvolt = ee.List([]);
+var cnvlp = ee.List([]);
+var cnvolp = ee.List([]);
+var cnvau = ee.List([]);
+var cnvaq = ee.List([]);
+
+for (var i = 1; i < bandNames.length; i++) {
+  /* identifying areas of some LULC that occupied mangrove areas in consecutive years
+     the identified areas are added to the lists */
+  var cnvff = cnvff.add(ff9920[i].eq(mgv9920[i-1]));
+  var cnvfs = cnvfs.add(fs9920[i].eq(mgv9920[i-1]));
+  var cnvfc = cnvfc.add(fc9920[i].eq(mgv9920[i-1]));
+  var cnvra = cnvra.add(ra9920[i].eq(mgv9920[i-1]));
+  var cnvrh = cnvrh.add(rh9920[i].eq(mgv9920[i-1]));
+  var cnvap = cnvap.add(ap9920[i].eq(mgv9920[i-1]));
+  var cnvcap = cnvcap.add(cap9920[i].eq(mgv9920[i-1]));
+  var cnvonv = cnvonv.add(onv9920[i].eq(mgv9920[i-1]));
+  var cnvonf = cnvonf.add(onf9920[i].eq(mgv9920[i-1]));
+  var cnvrlo = cnvrlo.add(rlo9920[i].eq(mgv9920[i-1]));
+  var cnvpda = cnvpda.add(pda9920[i].eq(mgv9920[i-1]));
+  var cnvpa = cnvpa.add(pa9920[i].eq(mgv9920[i-1]));
+  var cnvca = cnvca.add(ca9920[i].eq(mgv9920[i-1]));
+  var cnvar = cnvar.add(ar9920[i].eq(mgv9920[i-1]));
+  var cnvlt = cnvlt.add(lt9920[i].eq(mgv9920[i-1]));
+  var cnvolt = cnvolt.add(olt9920[i].eq(mgv9920[i-1]));
+  var cnvlp = cnvlp.add(lp9920[i].eq(mgv9920[i-1]));
+  var cnvolp = cnvolp.add(olp9920[i].eq(mgv9920[i-1]));
+  var cnvau = cnvau.add(au9920[i].eq(mgv9920[i-1]));
+  var cnvaq = cnvaq.add(aq9920[i].eq(mgv9920[i-1]));
+}
+
+// turning lists into collections of images:
+
+var cnv_ff = ee.ImageCollection(cnvff);
+//print(cnv_ff, 'Conversion mangroves to forest formation from 2000 - 2020')
+
+var cnv_fs = ee.ImageCollection(cnvfs);
+//print(cnv_fs, 'Conversion mangroves to savanna formation from 2000 - 2020')
+
+var cnv_fc = ee.ImageCollection(cnvfc);
+//print(cnv_fc, 'Conversion mangroves to grassland from 2000 - 2020')
+
+var cnv_ra = ee.ImageCollection(cnvra);
+//print(cnv_ra, 'Conversion mangroves to wooded sandbanck vegetation from 2000 - 2020')
+
+var cnv_rh = ee.ImageCollection(cnvrh);
+//print(cnv_rh, 'Conversion mangroves to herbaceous sandbank vegetation from 2000 - 2020')
+
+var cnv_ap = ee.ImageCollection(cnvap);
+//print(cnv_ap, 'Conversion mangroves to salt flat from 2000 - 2020')
+
+var cnv_cap = ee.ImageCollection(cnvcap);
+//print(cnv_cap, 'Conversion mangroves to wetland from 2000 - 2020')
+
+var cnv_onv = ee.ImageCollection(cnvonv);
+//print(cnv_onv, 'Conversion mangroves to other non vegetation areas from 2000 - 2020')
+
+var cnv_onf = ee.ImageCollection(cnvonf);
+//print(cnv_onf, 'Conversion mangroves to other non forest formations from 2000 - 2020')
+
+var cnv_rlo = ee.ImageCollection(cnvrlo);
+//print(cnv_rlo, 'Conversion mangroves to river, lake and ocean from 2000 - 2020')
+
+var cnv_pda = ee.ImageCollection(cnvpda);
+//print(cnv_pda, 'Conversion mangroves to beach, dune and sand spot from 2000 - 2020')
+
+var cnv_pa = ee.ImageCollection(cnvpa);
+//print(cnv_pa, 'Conversion mangroves to pasture from 2000 - 2020')
+
+var cnv_ca = ee.ImageCollection(cnvca);
+//print(cnv_ca, 'Conversion mangroves to sugar cane from 2000 - 2020')
+
+var cnv_ar = ee.ImageCollection(cnvar);
+//print(cnv_ar, 'Conversion mangroves to rice formation from 2000 - 2020')
+
+var cnv_lt = ee.ImageCollection(cnvlt);
+//print(cnv_lt, 'Conversion mangroves to temporary crop 2000 - 2020')
+
+var cnv_olt = ee.ImageCollection(cnvolt);
+//print(cnv_olt, 'Conversion mangroves to other temporary crop from 2000 - 2020')
+
+var cnv_lp = ee.ImageCollection(cnvlp);
+//print(cnv_lp, 'Conversion mangroves to perennial crops from 2000 - 2020')
+
+var cnv_olp = ee.ImageCollection(cnvolp);
+//print(cnv_olp, 'Conversion mangroves to other perennial crops from 2000 - 2020')
+
+var cnv_au = ee.ImageCollection(cnvau);
+//print(cnv_au, 'Conversion mangroves to urban area from 2000 - 2020')
+
+var cnv_aq = ee.ImageCollection(cnvaq);
+//print(cnv_aq, 'Conversion mangroves to aquaculture from 2000 - 2020')
+
+// PARA VERIFICAR PORQUE ÁREAS DE CONVERSÃO SÕA MAIORES DO QUE ÁREAS DE PERDA PARA DETERMINADAS UNIDADES ESPACIAIS
+/*
+var lossImg16 = ee.Image(loss.get(15));
+Map.addLayer(lossImg16, {palette:['45fc03']}, 'Mangrove - 2016'); // mangrove 2010 (green)
+
+var cnvffImg16 = ee.Image(cnvff.get(15));
+Map.addLayer(cnvffImg16, {palette:['228B22']}, 'forest - 2010'); // forest 2010 (ForestGreen)
+var cnvfcImg16 = ee.Image(cnvfc.get(15));
+Map.addLayer(cnvfcImg16, {palette:['32CD32']}, 'grassland - 2016'); // grassland 2010 (LimeGreen)
+var cnvfsImg16 = ee.Image(cnvfs.get(15));
+Map.addLayer(cnvfsImg16, {palette:['7FFF00']}, 'savanna - 2016'); // savanna 2010 (Chartreuse)
+var cnvraImg16 = ee.Image(cnvra.get(15));
+Map.addLayer(cnvraImg16, {palette:['F08080']}, 'wooded sandbank - 2016'); // wooded sandbank 2010 (LightCoral)
+var cnvrhImg16 = ee.Image(cnvrh.get(15));
+Map.addLayer(cnvrhImg16, {palette:['FFB6C1']}, 'herbaceous sandbank - 2016'); // herbaceous sandbank 2010 (LightPink)
+var cnvapImg16 = ee.Image(cnvap.get(15));
+Map.addLayer(cnvapImg16, {palette:['7FFFD4']}, 'saltflat - 2016'); // saltflat 2010 (Aquamarine)
+var cnvcapImg16 = ee.Image(cnvcap.get(15));
+Map.addLayer(cnvcapImg16, {palette:['66CDAA']}, 'wetland - 2016'); // wetland 2010 (MediumAquamarine)
+var cnvonvImg16 = ee.Image(cnvonv.get(15));
+Map.addLayer(cnvonvImg16, {palette:['B22222']}, 'other non vegetation - 2016'); // other n-vegetation 2010 (FireBrick)
+var cnvonfImg16 = ee.Image(cnvonf.get(15));
+Map.addLayer(cnvonfImg16, {palette:['800000']}, 'other non forest - 2016'); // other n-forest 2010 (Maroon)
+var cnvrloImg16 = ee.Image(cnvrlo.get(15));
+Map.addLayer(cnvrloImg16, {palette:['008080']}, 'river, lake and ocean - 2016'); // rlo 2010 (Teal)
+var cnvpdaImg16 = ee.Image(cnvpda.get(15));
+Map.addLayer(cnvpdaImg16, {palette:['DC143C']}, 'beach, dune and sand spot - 2016'); // bdss 2010 (Crimson)
+var cnvpaImg16 = ee.Image(cnvpa.get(15));
+Map.addLayer(cnvpaImg16, {palette:['808080']}, 'pasture - 2016'); // pasture 2010 (Gray)
+var cnvcaImg16 = ee.Image(cnvca.get(15));
+Map.addLayer(cnvcaImg16, {palette:['DAA520']}, 'sugar cane - 2016'); // sugar cane 2010 (Goldenrod)
+var cnvarImg16 = ee.Image(cnvar.get(15));
+Map.addLayer(cnvarImg16, {palette:['BDB76B']}, 'rice - 2016'); // rice 2010 (DarkKhaki)
+var cnvltImg16 = ee.Image(cnvlt.get(15));
+Map.addLayer(cnvltImg16, {palette:['A0522D']}, 'temporary crop - 2016'); // temporary crop 2010 (Sienna)
+var cnvoltImg16 = ee.Image(cnvolt.get(15));
+Map.addLayer(cnvoltImg16, {palette:['CD853F']}, 'other temporary crop - 2016'); // other temp. crop 2010 (Peru)
+var cnvlpImg16 = ee.Image(cnvlp.get(15));
+Map.addLayer(cnvlpImg16, {palette:['8B4513']}, 'perennial crop - 2016'); // perennial crop 2010 (SaddleBrown)
+var cnvolpImg16 = ee.Image(cnvolp.get(15));
+Map.addLayer(cnvolpImg16, {palette:['B8860B']}, 'other perennial crop - 2016'); // other pere. crop 2010 (DarkGoldenrod)
+var cnvauImg16 = ee.Image(cnvau.get(15));
+Map.addLayer(cnvauImg16, {palette:['363636']}, 'urban area - 2016'); // urban 2010 (grey21)
+var cnvaqImg16 = ee.Image(cnvaq.get(15));
+Map.addLayer(cnvaqImg16, {palette:['C0C0C0']}, 'aquaculture - 2016'); // aquaculture 2010 (Silver)
+*/
+
+
+// calculation of area converted by segments and states for each LULC:
+
+/*
+var cnvffArea_regions = cnv_ff.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvffArea_regions, 'Conversion mangroves to forest formation for each segment from 2000 - 2020');
+*/
+/*
+var cnvffArea_states = cnv_ff.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvffArea_states, 'Conversion mangroves to forest formation for each state from 2000 - 2020');
+*/
+
+/*
+var cnvfsArea_regions = cnv_fs.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvfsArea_regions, 'Conversion mangroves to savanna formation for each segment from 2000 - 2020');
+*/
+/*
+var cnvfsArea_states = cnv_fs.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvfsArea_states, 'Conversion mangroves to savanna formation for each state from 2000 - 2020');
+*/
+
+/*
+var cnvfcArea_regions = cnv_fc.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvfcArea_regions, 'Conversion mangroves to grassland for each segment from 2000 - 2020');
+*/
+/*
+var cnvfcArea_states = cnv_fc.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvfcArea_states, 'Conversion mangroves to grassland for each state from 2000 - 2020');
+*/
+
+/*
+var cnvraArea_regions = cnv_ra.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvraArea_regions, 'Conversion mangroves to wooded sandbanck vegetation for each segment from 2000 - 2020');
+*/
+/*
+var cnvraArea_states = cnv_ra.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvraArea_states, 'Conversion mangroves to wooded sandbanck vegetation for each state from 2000 - 2020');
+*/
+
+/*
+var cnvrhArea_regions = cnv_rh.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvrhArea_regions, 'Conversion mangroves to herbaceos sandbanck vegetation for each segment from 2000 - 2020');
+*/
+/*
+var cnvrhArea_states = cnv_rh.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvrhArea_states, 'Conversion mangroves to  herbaceous sandbanck vegetation for each state from 2000 - 2020');
+*/
+
+/*
+var cnvapArea_regions = cnv_ap.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvapArea_regions, 'Conversion mangroves to salt flat for each segment from 2000 - 2020');
+*/
+/*
+var cnvapArea_states = cnv_ap.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvapArea_states, 'Conversion mangroves to  salt flat for each state from 2000 - 2020');
+*/
+
+/*
+var cnvcapArea_regions = cnv_cap.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvcapArea_regions, 'Conversion mangroves to wetland for each segment from 2000 - 2020');
+*/
+/*
+var cnvcapArea_states = cnv_cap.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvcapArea_states, 'Conversion mangroves to  wetland for each state from 2000 - 2020');
+*/
+
+/*
+var cnvonvArea_regions = cnv_onv.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvonvArea_regions, 'Conversion mangroves to other non vegetation areas for each segment from 2000 - 2020');
+*/
+/*
+var cnvonvArea_states = cnv_onv.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvonvArea_states, 'Conversion mangroves to  other non vegetation areas for each state from 2000 - 2020');
+*/
+
+/*
+var cnvonfArea_regions = cnv_onf.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvonfArea_regions, 'Conversion mangroves to other non forest formations for each segment from 2000 - 2020');
+*/
+/*
+var cnvonfArea_states = cnv_onf.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvonfArea_states, 'Conversion mangroves to  other non forest formations for each state from 2000 - 2020');
+*/
+
+/*
+var cnvrloArea_regions = cnv_rlo.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvrloArea_regions, 'Conversion mangroves to river, lake and ocean for each segment from 2000 - 2020');
+*/
+/*
+var cnvrloArea_states = cnv_rlo.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvrloArea_states, 'Conversion mangroves to  river, lake and ocean for each state from 2000 - 2020');
+*/
+
+/*
+var cnvpdaArea_regions = cnv_pda.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvpdaArea_regions, 'Conversion mangroves to beach, dune and sand spot for each segment from 2000 - 2020');
+*/
+/*
+var cnvpdaArea_states = cnv_pda.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvpdaArea_states, 'Conversion mangroves to  beach, dune and sand spot for each state from 2000 - 2020');
+*/
+
+/*
+var cnvpaArea_regions = cnv_pa.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvpaArea_regions, 'Conversion mangroves to pasture for each segment from 2000 - 2020');
+*/
+/*
+var cnvpaArea_states = cnv_pa.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvpaArea_states, 'Conversion mangroves to pasture for each state from 2000 - 2020');
+*/
+
+/*
+var cnvcaArea_regions = cnv_ca.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvcaArea_regions, 'Conversion mangroves to sugar cane for each segment from 2000 - 2020');
+*/
+/*
+var cnvcaArea_states = cnv_ca.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvcaArea_states, 'Conversion mangroves to sugar cane for each state from 2000 - 2020');
+*/
+
+/*
+var cnvarArea_regions = cnv_ar.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvarArea_regions, 'Conversion mangroves to rice for each segment from 2000 - 2020');
+*/
+/*
+var cnvarArea_states = cnv_ar.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvarArea_states, 'Conversion mangroves to rice for each state from 2000 - 2020');
+*/
+
+/*
+var cnvltArea_regions = cnv_lt.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvltArea_regions, 'Conversion mangroves to temporary crop for each segment from 2000 - 2020');
+*/
+/*
+var cnvltArea_states = cnv_lt.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvltArea_states, 'Conversion mangroves to temporary crop for each state from 2000 - 2020');
+*/
+
+/*
+var cnvoltArea_regions = cnv_olt.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvoltArea_regions, 'Conversion mangroves to other temporary crop for each segment from 2000 - 2020');
+*/
+/*
+var cnvoltArea_states = cnv_olt.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvoltArea_states, 'Conversion mangroves to other temporary crop for each state from 2000 - 2020');
+*/
+
+/*
+var cnvlpArea_regions = cnv_lp.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvlpArea_regions, 'Conversion mangroves to perennial crop for each segment from 2000 - 2020');
+*/
+/*
+var cnvlpArea_states = cnv_lp.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvlpArea_states, 'Conversion mangroves to perennial crop for each state from 2000 - 2020');
+*/
+
+/*
+var cnvolpArea_regions = cnv_olp.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvolpArea_regions, 'Conversion mangroves to other perennial crop for each segment from 2000 - 2020');
+*/
+/*
+var cnvolpArea_states = cnv_olp.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvolpArea_states, 'Conversion mangroves to other perennial crop for each state from 2000 - 2020');
+*/
+
+/*
+var cnvauArea_regions = cnv_au.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvauArea_regions, 'Conversion mangroves to urban area for each segment from 2000 - 2020');
+*/
+/*
+var cnvauArea_states = cnv_au.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvauArea_states, 'Conversion mangroves to urban area for each state from 2000 - 2020');
+*/
+
+/*
+var cnvaqArea_regions = cnv_aq.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, region1, 'Nome da Região 1'),
+    calculateArea(image, region2, 'Nome da Região 2'),
+    calculateArea(image, region3, 'Nome da Região 3'),
+    calculateArea(image, region4, 'Nome da Região 4'),
+    calculateArea(image, region5, 'Nome da Região 5'),
+    calculateArea(image, region6, 'Nome da Região 6'),
+    calculateArea(image, region7, 'Nome da Região 7')
+  ]);
+  return features;
+}).flatten();
+
+print(cnvaqArea_regions, 'Conversion mangroves to aquaculture for each segment from 2000 - 2020');
+*/
+/*
+var cnvaqArea_states = cnv_aq.map(function(image) {
+  var features = ee.FeatureCollection([
+    calculateArea(image, AP, 'AP'),
+    calculateArea(image, PA, 'PA'),
+    calculateArea(image, MA, 'MA'),
+    calculateArea(image, PI, 'PI'),
+    calculateArea(image, CE, 'CE'),
+    calculateArea(image, RN, 'RN'),
+    calculateArea(image, PB, 'PB'),
+    calculateArea(image, PE, 'PE'),
+    calculateArea(image, AL, 'AL'),
+    calculateArea(image, SE, 'SE'),
+    calculateArea(image, BA, 'BA'),
+    calculateArea(image, ES, 'ES'),
+    calculateArea(image, RJ, 'RJ'),
+    calculateArea(image, SP, 'SP'),
+    calculateArea(image, PR, 'PR'),
+    calculateArea(image, SC, 'SC'),
+]);
+  return features;
+}).flatten();
+
+print(cnvaqArea_states, 'Conversion mangroves to aquaculture for each state from 2000 - 2020');
+*/
+
+// for export of results:
+ 
+/*
+ 
+ as coleções de imagens são exportadas para o drive do usuário em formato CSV
+ collection: 'coleção que deverá ser exportada'
+
+ coleções:
+
+      lossArea_regions
+      gainArea_regions
+      
+      lossArea_states
+      gainArea_states
+      
+      cnvffArea_regions
+      cnvfsArea_regions
+      cnvfcArea_regions
+      cnvraArea_regions
+      cnvrhArea_regions
+      cnvapArea_regions
+      cnvcapArea_regions
+      cnvonvArea_regions
+      cnvonfArea_regions
+      cnvrloArea_regions
+      cnvpdaArea_regions
+      cnvpaArea_regions
+      cnvcaArea_regions
+      cnvarArea_regions
+      cnvltArea_regions
+      cnvoltArea_regions
+      cnvlpArea_regions
+      cnvolpArea_regions
+      cnvauArea_regions
+      cnvaqArea_regions
+      
+      cnvffArea_states
+      cnvfsArea_states
+      cnvfcArea_states
+      cnvraArea_states
+      cnvrhArea_states
+      cnvapArea_states
+      cnvcapArea_states
+      cnvonvArea_states
+      cnvonfArea_states
+      cnvrloArea_states
+      cnvpdaArea_states
+      cnvpaArea_states
+      cnvcaArea_states
+      cnvarArea_states
+      cnvltArea_states
+      cnvoltArea_states
+      cnvlpArea_states
+      cnvolpArea_states
+      cnvauArea_states
+      cnvaqArea_states
+     
+      
+      
+Export.table.toDrive({
+  collection: cnvrhArea_regions,
+  description: 'cnvrhArea_regions',
+  folder: 'Artigo',
+  fileNamePrefix: 'cnvrhArea_regions',
+  fileFormat: 'CSV'
+});
+*/ 
+
+// creating interact map
+
+// selecting images of interesting:
+
+// year 2000
+var ff_Img00 = ee.Image(cnvff.get(0)).multiply(3);
+var fs_Img00 = ee.Image(cnvff.get(0)).multiply(4);
+var fc_Img00 = ee.Image(cnvfc.get(0)).multiply(12);
+var ra_Img00 = ee.Image(cnvra.get(0)).multiply(49);
+var rh_Img00 = ee.Image(cnvrh.get(0)).multiply(50);
+var ap_Img00 = ee.Image(cnvap.get(0)).multiply(32);
+var cap_Img00 = ee.Image(cnvcap.get(0)).multiply(11);
+var onv_Img00 = ee.Image(cnvonv.get(0)).multiply(25);
+var onf_Img00 = ee.Image(cnvonf.get(0)).multiply(13);
+var rlo_Img00 = ee.Image(cnvrlo.get(0)).multiply(33);
+var pda_Img00 = ee.Image(cnvpda.get(0)).multiply(23);
+var pa_Img00 = ee.Image(cnvpa.get(0)).multiply(15);
+var ca_Img00 = ee.Image(cnvca.get(0)).multiply(20);
+var ar_Img00 = ee.Image(cnvar.get(0)).multiply(40);
+var olt_Img00 = ee.Image(cnvolt.get(0)).multiply(41);
+var olp_Img00 = ee.Image(cnvolp.get(0)).multiply(48);
+var au_Img00 = ee.Image(cnvau.get(0)).multiply(24);
+var aq_Img00 = ee.Image(cnvaq.get(0)).multiply(31);
+
+// year 2001
+var ff_Img01 = ee.Image(cnvff.get(1)).multiply(3);
+var fs_Img01 = ee.Image(cnvff.get(1)).multiply(4);
+var fc_Img01 = ee.Image(cnvfc.get(1)).multiply(12);
+var ra_Img01 = ee.Image(cnvra.get(1)).multiply(49);
+var rh_Img01 = ee.Image(cnvrh.get(1)).multiply(50);
+var ap_Img01 = ee.Image(cnvap.get(1)).multiply(32);
+var cap_Img01 = ee.Image(cnvcap.get(1)).multiply(11);
+var onv_Img01 = ee.Image(cnvonv.get(1)).multiply(25);
+var onf_Img01 = ee.Image(cnvonf.get(1)).multiply(13);
+var rlo_Img01 = ee.Image(cnvrlo.get(1)).multiply(33);
+var pda_Img01 = ee.Image(cnvpda.get(1)).multiply(23);
+var pa_Img01 = ee.Image(cnvpa.get(1)).multiply(15);
+var ca_Img01 = ee.Image(cnvca.get(1)).multiply(20);
+var ar_Img01 = ee.Image(cnvar.get(1)).multiply(40);
+var olt_Img01 = ee.Image(cnvolt.get(1)).multiply(41);
+var olp_Img01 = ee.Image(cnvolp.get(1)).multiply(48);
+var au_Img01 = ee.Image(cnvau.get(1)).multiply(24);
+var aq_Img01 = ee.Image(cnvaq.get(1)).multiply(31);
+
+// year 2002
+var ff_Img02 = ee.Image(cnvff.get(2)).multiply(3);
+var fs_Img02 = ee.Image(cnvff.get(2)).multiply(4);
+var fc_Img02 = ee.Image(cnvfc.get(2)).multiply(12);
+var ra_Img02 = ee.Image(cnvra.get(2)).multiply(49);
+var rh_Img02 = ee.Image(cnvrh.get(2)).multiply(50);
+var ap_Img02 = ee.Image(cnvap.get(2)).multiply(32);
+var cap_Img02 = ee.Image(cnvcap.get(2)).multiply(11);
+var onv_Img02 = ee.Image(cnvonv.get(2)).multiply(25);
+var onf_Img02 = ee.Image(cnvonf.get(2)).multiply(13);
+var rlo_Img02 = ee.Image(cnvrlo.get(2)).multiply(33);
+var pda_Img02 = ee.Image(cnvpda.get(2)).multiply(23);
+var pa_Img02 = ee.Image(cnvpa.get(2)).multiply(15);
+var ca_Img02 = ee.Image(cnvca.get(2)).multiply(20);
+var ar_Img02 = ee.Image(cnvar.get(2)).multiply(40);
+var olt_Img02 = ee.Image(cnvolt.get(2)).multiply(41);
+var olp_Img02 = ee.Image(cnvolp.get(2)).multiply(48);
+var au_Img02 = ee.Image(cnvau.get(2)).multiply(24);
+var aq_Img02 = ee.Image(cnvaq.get(2)).multiply(31);
+
+// year 2003
+var ff_Img03 = ee.Image(cnvff.get(3)).multiply(3);
+var fs_Img03 = ee.Image(cnvff.get(3)).multiply(4);
+var fc_Img03 = ee.Image(cnvfc.get(3)).multiply(12);
+var ra_Img03 = ee.Image(cnvra.get(3)).multiply(49);
+var rh_Img03 = ee.Image(cnvrh.get(3)).multiply(50);
+var ap_Img03 = ee.Image(cnvap.get(3)).multiply(32);
+var cap_Img03 = ee.Image(cnvcap.get(3)).multiply(11);
+var onv_Img03 = ee.Image(cnvonv.get(3)).multiply(25);
+var onf_Img03 = ee.Image(cnvonf.get(3)).multiply(13);
+var rlo_Img03 = ee.Image(cnvrlo.get(3)).multiply(33);
+var pda_Img03 = ee.Image(cnvpda.get(3)).multiply(23);
+var pa_Img03 = ee.Image(cnvpa.get(3)).multiply(15);
+var ca_Img03 = ee.Image(cnvca.get(3)).multiply(20);
+var ar_Img03 = ee.Image(cnvar.get(3)).multiply(40);
+var olt_Img03 = ee.Image(cnvolt.get(3)).multiply(41);
+var olp_Img03 = ee.Image(cnvolp.get(3)).multiply(48);
+var au_Img03 = ee.Image(cnvau.get(3)).multiply(24);
+var aq_Img03 = ee.Image(cnvaq.get(3)).multiply(31);
+
+// year 2004
+var ff_Img04 = ee.Image(cnvff.get(4)).multiply(3);
+var fs_Img04 = ee.Image(cnvff.get(4)).multiply(4);
+var fc_Img04 = ee.Image(cnvfc.get(4)).multiply(12);
+var ra_Img04 = ee.Image(cnvra.get(4)).multiply(49);
+var rh_Img04 = ee.Image(cnvrh.get(4)).multiply(50);
+var ap_Img04 = ee.Image(cnvap.get(4)).multiply(32);
+var cap_Img04 = ee.Image(cnvcap.get(4)).multiply(11);
+var onv_Img04 = ee.Image(cnvonv.get(4)).multiply(25);
+var onf_Img04 = ee.Image(cnvonf.get(4)).multiply(13);
+var rlo_Img04 = ee.Image(cnvrlo.get(4)).multiply(33);
+var pda_Img04 = ee.Image(cnvpda.get(4)).multiply(23);
+var pa_Img04 = ee.Image(cnvpa.get(4)).multiply(15);
+var ca_Img04 = ee.Image(cnvca.get(4)).multiply(20);
+var ar_Img04 = ee.Image(cnvar.get(4)).multiply(40);
+var olt_Img04 = ee.Image(cnvolt.get(4)).multiply(41);
+var olp_Img04 = ee.Image(cnvolp.get(4)).multiply(48);
+var au_Img04 = ee.Image(cnvau.get(4)).multiply(24);
+var aq_Img04 = ee.Image(cnvaq.get(4)).multiply(31);
+
+
+// year 2005
+var ff_Img05 = ee.Image(cnvff.get(5)).multiply(3);
+var fs_Img05 = ee.Image(cnvff.get(5)).multiply(4);
+var fc_Img05 = ee.Image(cnvfc.get(5)).multiply(12);
+var ra_Img05 = ee.Image(cnvra.get(5)).multiply(49);
+var rh_Img05 = ee.Image(cnvrh.get(5)).multiply(50);
+var ap_Img05 = ee.Image(cnvap.get(5)).multiply(32);
+var cap_Img05 = ee.Image(cnvcap.get(5)).multiply(11);
+var onv_Img05 = ee.Image(cnvonv.get(5)).multiply(25);
+var onf_Img05 = ee.Image(cnvonf.get(5)).multiply(13);
+var rlo_Img05 = ee.Image(cnvrlo.get(5)).multiply(33);
+var pda_Img05 = ee.Image(cnvpda.get(5)).multiply(23);
+var pa_Img05 = ee.Image(cnvpa.get(5)).multiply(15);
+var ca_Img05 = ee.Image(cnvca.get(5)).multiply(20);
+var ar_Img05 = ee.Image(cnvar.get(5)).multiply(40);
+var olt_Img05 = ee.Image(cnvolt.get(5)).multiply(41);
+var olp_Img05 = ee.Image(cnvolp.get(5)).multiply(48);
+var au_Img05 = ee.Image(cnvau.get(5)).multiply(24);
+var aq_Img05 = ee.Image(cnvaq.get(5)).multiply(31);
+
+// year 2006
+var ff_Img06 = ee.Image(cnvff.get(6)).multiply(3);
+var fs_Img06 = ee.Image(cnvff.get(6)).multiply(4);
+var fc_Img06 = ee.Image(cnvfc.get(6)).multiply(12);
+var ra_Img06 = ee.Image(cnvra.get(6)).multiply(49);
+var rh_Img06 = ee.Image(cnvrh.get(6)).multiply(50);
+var ap_Img06 = ee.Image(cnvap.get(6)).multiply(32);
+var cap_Img06 = ee.Image(cnvcap.get(6)).multiply(11);
+var onv_Img06 = ee.Image(cnvonv.get(6)).multiply(25);
+var onf_Img06 = ee.Image(cnvonf.get(6)).multiply(13);
+var rlo_Img06 = ee.Image(cnvrlo.get(6)).multiply(33);
+var pda_Img06 = ee.Image(cnvpda.get(6)).multiply(23);
+var pa_Img06 = ee.Image(cnvpa.get(6)).multiply(15);
+var ca_Img06 = ee.Image(cnvca.get(6)).multiply(20);
+var ar_Img06 = ee.Image(cnvar.get(6)).multiply(40);
+var olt_Img06 = ee.Image(cnvolt.get(6)).multiply(41);
+var olp_Img06 = ee.Image(cnvolp.get(6)).multiply(48);
+var au_Img06 = ee.Image(cnvau.get(6)).multiply(24);
+var aq_Img06 = ee.Image(cnvaq.get(6)).multiply(31);
+
+// year 2007
+var ff_Img07 = ee.Image(cnvff.get(7)).multiply(3);
+var fs_Img07 = ee.Image(cnvff.get(7)).multiply(4);
+var fc_Img07 = ee.Image(cnvfc.get(7)).multiply(12);
+var ra_Img07 = ee.Image(cnvra.get(7)).multiply(49);
+var rh_Img07 = ee.Image(cnvrh.get(7)).multiply(50);
+var ap_Img07 = ee.Image(cnvap.get(7)).multiply(32);
+var cap_Img07 = ee.Image(cnvcap.get(7)).multiply(11);
+var onv_Img07 = ee.Image(cnvonv.get(7)).multiply(25);
+var onf_Img07 = ee.Image(cnvonf.get(7)).multiply(13);
+var rlo_Img07 = ee.Image(cnvrlo.get(7)).multiply(33);
+var pda_Img07 = ee.Image(cnvpda.get(7)).multiply(23);
+var pa_Img07 = ee.Image(cnvpa.get(7)).multiply(15);
+var ca_Img07 = ee.Image(cnvca.get(7)).multiply(20);
+var ar_Img07 = ee.Image(cnvar.get(7)).multiply(40);
+var olt_Img07 = ee.Image(cnvolt.get(7)).multiply(41);
+var olp_Img07 = ee.Image(cnvolp.get(7)).multiply(48);
+var au_Img07 = ee.Image(cnvau.get(7)).multiply(24);
+var aq_Img07 = ee.Image(cnvaq.get(7)).multiply(31);
+
+// year 2008
+var ff_Img08 = ee.Image(cnvff.get(8)).multiply(3);
+var fs_Img08 = ee.Image(cnvff.get(8)).multiply(4);
+var fc_Img08 = ee.Image(cnvfc.get(8)).multiply(12);
+var ra_Img08 = ee.Image(cnvra.get(8)).multiply(49);
+var rh_Img08 = ee.Image(cnvrh.get(8)).multiply(50);
+var ap_Img08 = ee.Image(cnvap.get(8)).multiply(32);
+var cap_Img08 = ee.Image(cnvcap.get(8)).multiply(11);
+var onv_Img08 = ee.Image(cnvonv.get(8)).multiply(25);
+var onf_Img08 = ee.Image(cnvonf.get(8)).multiply(13);
+var rlo_Img08 = ee.Image(cnvrlo.get(8)).multiply(33);
+var pda_Img08 = ee.Image(cnvpda.get(8)).multiply(23);
+var pa_Img08 = ee.Image(cnvpa.get(8)).multiply(15);
+var ca_Img08 = ee.Image(cnvca.get(8)).multiply(20);
+var ar_Img08 = ee.Image(cnvar.get(8)).multiply(40);
+var olt_Img08 = ee.Image(cnvolt.get(8)).multiply(41);
+var olp_Img08 = ee.Image(cnvolp.get(8)).multiply(48);
+var au_Img08 = ee.Image(cnvau.get(8)).multiply(24);
+var aq_Img08 = ee.Image(cnvaq.get(8)).multiply(31);
+
+// year 2009
+var ff_Img09 = ee.Image(cnvff.get(9)).multiply(3);
+var fs_Img09 = ee.Image(cnvff.get(9)).multiply(4);
+var fc_Img09 = ee.Image(cnvfc.get(9)).multiply(12);
+var ra_Img09 = ee.Image(cnvra.get(9)).multiply(49);
+var rh_Img09 = ee.Image(cnvrh.get(9)).multiply(50);
+var ap_Img09 = ee.Image(cnvap.get(9)).multiply(32);
+var cap_Img09 = ee.Image(cnvcap.get(9)).multiply(11);
+var onv_Img09 = ee.Image(cnvonv.get(9)).multiply(25);
+var onf_Img09 = ee.Image(cnvonf.get(9)).multiply(13);
+var rlo_Img09 = ee.Image(cnvrlo.get(9)).multiply(33);
+var pda_Img09 = ee.Image(cnvpda.get(9)).multiply(23);
+var pa_Img09 = ee.Image(cnvpa.get(9)).multiply(15);
+var ca_Img09 = ee.Image(cnvca.get(9)).multiply(20);
+var ar_Img09 = ee.Image(cnvar.get(9)).multiply(40);
+var olt_Img09 = ee.Image(cnvolt.get(9)).multiply(41);
+var olp_Img09 = ee.Image(cnvolp.get(9)).multiply(48);
+var au_Img09 = ee.Image(cnvau.get(9)).multiply(24);
+var aq_Img09 = ee.Image(cnvaq.get(9)).multiply(31);
+
+// year 2010
+var ff_Img10 = ee.Image(cnvff.get(9)).multiply(3);
+var fs_Img10 = ee.Image(cnvff.get(9)).multiply(4);
+var fc_Img10 = ee.Image(cnvfc.get(9)).multiply(12);
+var ra_Img10 = ee.Image(cnvra.get(9)).multiply(49);
+var rh_Img10 = ee.Image(cnvrh.get(9)).multiply(50);
+var ap_Img10 = ee.Image(cnvap.get(9)).multiply(32);
+var cap_Img10 = ee.Image(cnvcap.get(9)).multiply(11);
+var onv_Img10 = ee.Image(cnvonv.get(9)).multiply(25);
+var onf_Img10 = ee.Image(cnvonf.get(9)).multiply(13);
+var rlo_Img10 = ee.Image(cnvrlo.get(9)).multiply(33);
+var pda_Img10 = ee.Image(cnvpda.get(9)).multiply(23);
+var pa_Img10 = ee.Image(cnvpa.get(9)).multiply(15);
+var ca_Img10 = ee.Image(cnvca.get(9)).multiply(20);
+var ar_Img10 = ee.Image(cnvar.get(9)).multiply(40);
+var olt_Img10 = ee.Image(cnvolt.get(9)).multiply(41);
+var olp_Img10 = ee.Image(cnvolp.get(9)).multiply(48);
+var au_Img10 = ee.Image(cnvau.get(9)).multiply(24);
+var aq_Img10 = ee.Image(cnvaq.get(9)).multiply(31);
+
+// year 2011
+var ff_Img11 = ee.Image(cnvff.get(11)).multiply(3);
+var fs_Img11 = ee.Image(cnvff.get(11)).multiply(4);
+var fc_Img11 = ee.Image(cnvfc.get(11)).multiply(12);
+var ra_Img11 = ee.Image(cnvra.get(11)).multiply(49);
+var rh_Img11 = ee.Image(cnvrh.get(11)).multiply(50);
+var ap_Img11 = ee.Image(cnvap.get(11)).multiply(32);
+var cap_Img11 = ee.Image(cnvcap.get(11)).multiply(11);
+var onv_Img11 = ee.Image(cnvonv.get(11)).multiply(25);
+var onf_Img11 = ee.Image(cnvonf.get(11)).multiply(13);
+var rlo_Img11 = ee.Image(cnvrlo.get(11)).multiply(33);
+var pda_Img11 = ee.Image(cnvpda.get(11)).multiply(23);
+var pa_Img11 = ee.Image(cnvpa.get(11)).multiply(15);
+var ca_Img11 = ee.Image(cnvca.get(11)).multiply(20);
+var ar_Img11 = ee.Image(cnvar.get(11)).multiply(40);
+var olt_Img11 = ee.Image(cnvolt.get(11)).multiply(41);
+var olp_Img11 = ee.Image(cnvolp.get(11)).multiply(48);
+var au_Img11 = ee.Image(cnvau.get(11)).multiply(24);
+var aq_Img11 = ee.Image(cnvaq.get(11)).multiply(31);
+
+// year 2012
+var ff_Img12 = ee.Image(cnvff.get(12)).multiply(3);
+var fs_Img12 = ee.Image(cnvff.get(12)).multiply(4);
+var fc_Img12 = ee.Image(cnvfc.get(12)).multiply(12);
+var ra_Img12 = ee.Image(cnvra.get(12)).multiply(49);
+var rh_Img12 = ee.Image(cnvrh.get(12)).multiply(50);
+var ap_Img12 = ee.Image(cnvap.get(12)).multiply(32);
+var cap_Img12 = ee.Image(cnvcap.get(12)).multiply(11);
+var onv_Img12 = ee.Image(cnvonv.get(12)).multiply(25);
+var onf_Img12 = ee.Image(cnvonf.get(12)).multiply(13);
+var rlo_Img12 = ee.Image(cnvrlo.get(12)).multiply(33);
+var pda_Img12 = ee.Image(cnvpda.get(12)).multiply(23);
+var pa_Img12 = ee.Image(cnvpa.get(12)).multiply(15);
+var ca_Img12 = ee.Image(cnvca.get(12)).multiply(20);
+var ar_Img12 = ee.Image(cnvar.get(12)).multiply(40);
+var olt_Img12 = ee.Image(cnvolt.get(12)).multiply(41);
+var olp_Img12 = ee.Image(cnvolp.get(12)).multiply(48);
+var au_Img12 = ee.Image(cnvau.get(12)).multiply(24);
+var aq_Img12 = ee.Image(cnvaq.get(12)).multiply(31);
+
+// year 2013
+var ff_Img13 = ee.Image(cnvff.get(13)).multiply(3);
+var fs_Img13 = ee.Image(cnvff.get(13)).multiply(4);
+var fc_Img13 = ee.Image(cnvfc.get(13)).multiply(12);
+var ra_Img13 = ee.Image(cnvra.get(13)).multiply(49);
+var rh_Img13 = ee.Image(cnvrh.get(13)).multiply(50);
+var ap_Img13 = ee.Image(cnvap.get(13)).multiply(32);
+var cap_Img13 = ee.Image(cnvcap.get(13)).multiply(11);
+var onv_Img13 = ee.Image(cnvonv.get(13)).multiply(25);
+var onf_Img13 = ee.Image(cnvonf.get(13)).multiply(13);
+var rlo_Img13 = ee.Image(cnvrlo.get(13)).multiply(33);
+var pda_Img13 = ee.Image(cnvpda.get(13)).multiply(23);
+var pa_Img13 = ee.Image(cnvpa.get(13)).multiply(15);
+var ca_Img13 = ee.Image(cnvca.get(13)).multiply(20);
+var ar_Img13 = ee.Image(cnvar.get(13)).multiply(40);
+var olt_Img13 = ee.Image(cnvolt.get(13)).multiply(41);
+var olp_Img13 = ee.Image(cnvolp.get(13)).multiply(48);
+var au_Img13 = ee.Image(cnvau.get(13)).multiply(24);
+var aq_Img13 = ee.Image(cnvaq.get(13)).multiply(31);
+
+// year 2014
+var ff_Img14 = ee.Image(cnvff.get(14)).multiply(3);
+var fs_Img14 = ee.Image(cnvff.get(14)).multiply(4);
+var fc_Img14 = ee.Image(cnvfc.get(14)).multiply(12);
+var ra_Img14 = ee.Image(cnvra.get(14)).multiply(49);
+var rh_Img14 = ee.Image(cnvrh.get(14)).multiply(50);
+var ap_Img14 = ee.Image(cnvap.get(14)).multiply(32);
+var cap_Img14 = ee.Image(cnvcap.get(14)).multiply(11);
+var onv_Img14 = ee.Image(cnvonv.get(14)).multiply(25);
+var onf_Img14 = ee.Image(cnvonf.get(14)).multiply(13);
+var rlo_Img14 = ee.Image(cnvrlo.get(14)).multiply(33);
+var pda_Img14 = ee.Image(cnvpda.get(14)).multiply(23);
+var pa_Img14 = ee.Image(cnvpa.get(14)).multiply(15);
+var ca_Img14 = ee.Image(cnvca.get(14)).multiply(20);
+var ar_Img14 = ee.Image(cnvar.get(14)).multiply(40);
+var olt_Img14 = ee.Image(cnvolt.get(14)).multiply(41);
+var olp_Img14 = ee.Image(cnvolp.get(14)).multiply(48);
+var au_Img14 = ee.Image(cnvau.get(14)).multiply(24);
+var aq_Img14 = ee.Image(cnvaq.get(14)).multiply(31);
+
+// year 2015
+var ff_Img15 = ee.Image(cnvff.get(15)).multiply(3);
+var fs_Img15 = ee.Image(cnvff.get(15)).multiply(4);
+var fc_Img15 = ee.Image(cnvfc.get(15)).multiply(12);
+var ra_Img15 = ee.Image(cnvra.get(15)).multiply(49);
+var rh_Img15 = ee.Image(cnvrh.get(15)).multiply(50);
+var ap_Img15 = ee.Image(cnvap.get(15)).multiply(32);
+var cap_Img15 = ee.Image(cnvcap.get(15)).multiply(11);
+var onv_Img15 = ee.Image(cnvonv.get(15)).multiply(25);
+var onf_Img15 = ee.Image(cnvonf.get(15)).multiply(13);
+var rlo_Img15 = ee.Image(cnvrlo.get(15)).multiply(33);
+var pda_Img15 = ee.Image(cnvpda.get(15)).multiply(23);
+var pa_Img15 = ee.Image(cnvpa.get(15)).multiply(15);
+var ca_Img15 = ee.Image(cnvca.get(15)).multiply(20);
+var ar_Img15 = ee.Image(cnvar.get(15)).multiply(40);
+var olt_Img15 = ee.Image(cnvolt.get(15)).multiply(41);
+var olp_Img15 = ee.Image(cnvolp.get(15)).multiply(48);
+var au_Img15 = ee.Image(cnvau.get(15)).multiply(24);
+var aq_Img15 = ee.Image(cnvaq.get(15)).multiply(31);
+
+// year 2016
+var ff_Img16 = ee.Image(cnvff.get(16)).multiply(3);
+var fs_Img16 = ee.Image(cnvff.get(16)).multiply(4);
+var fc_Img16 = ee.Image(cnvfc.get(16)).multiply(12);
+var ra_Img16 = ee.Image(cnvra.get(16)).multiply(49);
+var rh_Img16 = ee.Image(cnvrh.get(16)).multiply(50);
+var ap_Img16 = ee.Image(cnvap.get(16)).multiply(32);
+var cap_Img16 = ee.Image(cnvcap.get(16)).multiply(11);
+var onv_Img16 = ee.Image(cnvonv.get(16)).multiply(25);
+var onf_Img16 = ee.Image(cnvonf.get(16)).multiply(13);
+var rlo_Img16 = ee.Image(cnvrlo.get(16)).multiply(33);
+var pda_Img16 = ee.Image(cnvpda.get(16)).multiply(23);
+var pa_Img16 = ee.Image(cnvpa.get(16)).multiply(15);
+var ca_Img16 = ee.Image(cnvca.get(16)).multiply(20);
+var ar_Img16 = ee.Image(cnvar.get(16)).multiply(40);
+var olt_Img16 = ee.Image(cnvolt.get(16)).multiply(41);
+var olp_Img16 = ee.Image(cnvolp.get(16)).multiply(48);
+var au_Img16 = ee.Image(cnvau.get(16)).multiply(24);
+var aq_Img16 = ee.Image(cnvaq.get(16)).multiply(31);
+
+// year 2017
+var ff_Img17 = ee.Image(cnvff.get(17)).multiply(3);
+var fs_Img17 = ee.Image(cnvff.get(17)).multiply(4);
+var fc_Img17 = ee.Image(cnvfc.get(17)).multiply(12);
+var ra_Img17 = ee.Image(cnvra.get(17)).multiply(49);
+var rh_Img17 = ee.Image(cnvrh.get(17)).multiply(50);
+var ap_Img17 = ee.Image(cnvap.get(17)).multiply(32);
+var cap_Img17 = ee.Image(cnvcap.get(17)).multiply(11);
+var onv_Img17 = ee.Image(cnvonv.get(17)).multiply(25);
+var onf_Img17 = ee.Image(cnvonf.get(17)).multiply(13);
+var rlo_Img17 = ee.Image(cnvrlo.get(17)).multiply(33);
+var pda_Img17 = ee.Image(cnvpda.get(17)).multiply(23);
+var pa_Img17 = ee.Image(cnvpa.get(17)).multiply(15);
+var ca_Img17 = ee.Image(cnvca.get(17)).multiply(20);
+var ar_Img17 = ee.Image(cnvar.get(17)).multiply(40);
+var olt_Img17 = ee.Image(cnvolt.get(17)).multiply(41);
+var olp_Img17 = ee.Image(cnvolp.get(17)).multiply(48);
+var au_Img17 = ee.Image(cnvau.get(17)).multiply(24);
+var aq_Img17 = ee.Image(cnvaq.get(17)).multiply(31);
+
+// year 2018
+var ff_Img18 = ee.Image(cnvff.get(18)).multiply(3);
+var fs_Img18 = ee.Image(cnvff.get(18)).multiply(4);
+var fc_Img18 = ee.Image(cnvfc.get(18)).multiply(12);
+var ra_Img18 = ee.Image(cnvra.get(18)).multiply(49);
+var rh_Img18 = ee.Image(cnvrh.get(18)).multiply(50);
+var ap_Img18 = ee.Image(cnvap.get(18)).multiply(32);
+var cap_Img18 = ee.Image(cnvcap.get(18)).multiply(11);
+var onv_Img18 = ee.Image(cnvonv.get(18)).multiply(25);
+var onf_Img18 = ee.Image(cnvonf.get(18)).multiply(13);
+var rlo_Img18 = ee.Image(cnvrlo.get(18)).multiply(33);
+var pda_Img18 = ee.Image(cnvpda.get(18)).multiply(23);
+var pa_Img18 = ee.Image(cnvpa.get(18)).multiply(15);
+var ca_Img18 = ee.Image(cnvca.get(18)).multiply(20);
+var ar_Img18 = ee.Image(cnvar.get(18)).multiply(40);
+var olt_Img18 = ee.Image(cnvolt.get(18)).multiply(41);
+var olp_Img18 = ee.Image(cnvolp.get(18)).multiply(48);
+var au_Img18 = ee.Image(cnvau.get(18)).multiply(24);
+var aq_Img18 = ee.Image(cnvaq.get(18)).multiply(31);
+
+// year 2019
+var ff_Img19 = ee.Image(cnvff.get(19)).multiply(3);
+var fs_Img19 = ee.Image(cnvff.get(19)).multiply(4);
+var fc_Img19 = ee.Image(cnvfc.get(19)).multiply(12);
+var ra_Img19 = ee.Image(cnvra.get(19)).multiply(49);
+var rh_Img19 = ee.Image(cnvrh.get(19)).multiply(50);
+var ap_Img19 = ee.Image(cnvap.get(19)).multiply(32);
+var cap_Img19 = ee.Image(cnvcap.get(19)).multiply(11);
+var onv_Img19 = ee.Image(cnvonv.get(19)).multiply(25);
+var onf_Img19 = ee.Image(cnvonf.get(19)).multiply(13);
+var rlo_Img19 = ee.Image(cnvrlo.get(19)).multiply(33);
+var pda_Img19 = ee.Image(cnvpda.get(19)).multiply(23);
+var pa_Img19 = ee.Image(cnvpa.get(19)).multiply(15);
+var ca_Img19 = ee.Image(cnvca.get(19)).multiply(20);
+var ar_Img19 = ee.Image(cnvar.get(19)).multiply(40);
+var olt_Img19 = ee.Image(cnvolt.get(19)).multiply(41);
+var olp_Img19 = ee.Image(cnvolp.get(19)).multiply(48);
+var au_Img19 = ee.Image(cnvau.get(19)).multiply(24);
+var aq_Img19 = ee.Image(cnvaq.get(19)).multiply(31);
+
+// year 2020
+var ff_Img20 = ee.Image(cnvff.get(20)).multiply(3);
+var fs_Img20 = ee.Image(cnvff.get(20)).multiply(4);
+var fc_Img20 = ee.Image(cnvfc.get(20)).multiply(12);
+var ra_Img20 = ee.Image(cnvra.get(20)).multiply(49);
+var rh_Img20 = ee.Image(cnvrh.get(20)).multiply(50);
+var ap_Img20 = ee.Image(cnvap.get(20)).multiply(32);
+var cap_Img20 = ee.Image(cnvcap.get(20)).multiply(11);
+var onv_Img20 = ee.Image(cnvonv.get(20)).multiply(25);
+var onf_Img20 = ee.Image(cnvonf.get(20)).multiply(13);
+var rlo_Img20 = ee.Image(cnvrlo.get(20)).multiply(33);
+var pda_Img20 = ee.Image(cnvpda.get(20)).multiply(23);
+var pa_Img20 = ee.Image(cnvpa.get(20)).multiply(15);
+var ca_Img20 = ee.Image(cnvca.get(20)).multiply(20);
+var ar_Img20 = ee.Image(cnvar.get(20)).multiply(40);
+var olt_Img20 = ee.Image(cnvolt.get(20)).multiply(41);
+var olp_Img20 = ee.Image(cnvolp.get(20)).multiply(48);
+var au_Img20 = ee.Image(cnvau.get(20)).multiply(24);
+var aq_Img20 = ee.Image(cnvaq.get(20)).multiply(31);
+
+// create a blank image with the same dimensions and projection as the reference image
+
+var blankImage = ee.Image(ff_Img00).select(0).multiply(0);
+var blankImage01 = ee.Image(ff_Img01).select(0).multiply(0);
+var blankImage02 = ee.Image(ff_Img02).select(0).multiply(0);
+var blankImage03 = ee.Image(ff_Img03).select(0).multiply(0);
+var blankImage04 = ee.Image(ff_Img04).select(0).multiply(0);
+var blankImage05 = ee.Image(ff_Img05).select(0).multiply(0);
+var blankImage06 = ee.Image(ff_Img06).select(0).multiply(0);
+var blankImage07 = ee.Image(ff_Img07).select(0).multiply(0);
+var blankImage08 = ee.Image(ff_Img08).select(0).multiply(0);
+var blankImage09 = ee.Image(ff_Img09).select(0).multiply(0);
+var blankImage10 = ee.Image(ff_Img10).select(0).multiply(0);
+var blankImage11 = ee.Image(ff_Img11).select(0).multiply(0);
+var blankImage12 = ee.Image(ff_Img12).select(0).multiply(0);
+var blankImage13 = ee.Image(ff_Img13).select(0).multiply(0);
+var blankImage14 = ee.Image(ff_Img14).select(0).multiply(0);
+var blankImage15 = ee.Image(ff_Img15).select(0).multiply(0);
+var blankImage16 = ee.Image(ff_Img16).select(0).multiply(0);
+var blankImage17 = ee.Image(ff_Img17).select(0).multiply(0);
+var blankImage18 = ee.Image(ff_Img18).select(0).multiply(0);
+var blankImage19 = ee.Image(ff_Img19).select(0).multiply(0);
+var blankImage20 = ee.Image(ff_Img20).select(0).multiply(0);
+
+// define LULC classes and corresponding colors
+
+// year 2000
+var classes = {
+  "forest": {image: ff_Img00, color: '#218a21'},
+  "savannah": {image: fs_Img00, color: '#7dff00'},
+  "grassland": {image: fc_Img00, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img00, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img00, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img00, color: '#7dffd4'},
+  "wetland": {image: cap_Img00, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img00, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img00, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img00, color: '#dc113a'},
+  "pasture": {image: pa_Img00, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img00, color: '#d9a31e'},
+  "rice": {image: ar_Img00, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img00, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img00, color: '#b8850a'},
+  "urban_area": {image: au_Img00, color: '#353535'},
+  "aquaculture": {image: aq_Img00, color: '#bfbfbf'},
+};
+
+// year 2001
+var classes_2001 = {
+  "forest": {image: ff_Img01, color: '#218a21'},
+  "savannah": {image: fs_Img01, color: '#7dff00'},
+  "grassland": {image: fc_Img01, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img01, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img01, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img01, color: '#7dffd4'},
+  "wetland": {image: cap_Img01, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img01, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img01, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img01, color: '#dc113a'},
+  "pasture": {image: pa_Img01, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img01, color: '#d9a31e'},
+  "rice": {image: ar_Img01, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img01, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img01, color: '#b8850a'},
+  "urban_area": {image: au_Img01, color: '#353535'},
+  "aquaculture": {image: aq_Img01, color: '#bfbfbf'},
+};
+
+// year 2002
+var classes_2002 = {
+  "forest": {image: ff_Img02, color: '#218a21'},
+  "savannah": {image: fs_Img02, color: '#7dff00'},
+  "grassland": {image: fc_Img02, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img02, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img02, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img02, color: '#7dffd4'},
+  "wetland": {image: cap_Img02, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img02, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img02, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img02, color: '#dc113a'},
+  "pasture": {image: pa_Img02, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img02, color: '#d9a31e'},
+  "rice": {image: ar_Img02, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img02, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img02, color: '#b8850a'},
+  "urban_area": {image: au_Img02, color: '#353535'},
+  "aquaculture": {image: aq_Img02, color: '#bfbfbf'},
+};
+
+// year 2003
+var classes_2003 = {
+  "forest": {image: ff_Img03, color: '#218a21'},
+  "savannah": {image: fs_Img03, color: '#7dff00'},
+  "grassland": {image: fc_Img03, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img03, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img03, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img03, color: '#7dffd4'},
+  "wetland": {image: cap_Img03, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img03, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img03, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img03, color: '#dc113a'},
+  "pasture": {image: pa_Img03, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img03, color: '#d9a31e'},
+  "rice": {image: ar_Img03, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img03, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img03, color: '#b8850a'},
+  "urban_area": {image: au_Img03, color: '#353535'},
+  "aquaculture": {image: aq_Img03, color: '#bfbfbf'},
+};
+
+// year 2004
+var classes_2004 = {
+  "forest": {image: ff_Img04, color: '#218a21'},
+  "savannah": {image: fs_Img04, color: '#7dff00'},
+  "grassland": {image: fc_Img04, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img04, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img04, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img04, color: '#7dffd4'},
+  "wetland": {image: cap_Img04, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img04, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img04, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img04, color: '#dc113a'},
+  "pasture": {image: pa_Img04, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img04, color: '#d9a31e'},
+  "rice": {image: ar_Img04, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img04, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img04, color: '#b8850a'},
+  "urban_area": {image: au_Img04, color: '#353535'},
+  "aquaculture": {image: aq_Img04, color: '#bfbfbf'},
+};
+
+// year 2005
+var classes_2005 = {
+  "forest": {image: ff_Img05, color: '#218a21'},
+  "savannah": {image: fs_Img05, color: '#7dff00'},
+  "grassland": {image: fc_Img05, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img05, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img05, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img05, color: '#7dffd4'},
+  "wetland": {image: cap_Img05, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img05, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img05, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img05, color: '#dc113a'},
+  "pasture": {image: pa_Img05, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img05, color: '#d9a31e'},
+  "rice": {image: ar_Img05, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img05, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img05, color: '#b8850a'},
+  "urban_area": {image: au_Img05, color: '#353535'},
+  "aquaculture": {image: aq_Img05, color: '#bfbfbf'},
+};
+
+// year 2006
+var classes_2006 = {
+  "forest": {image: ff_Img06, color: '#218a21'},
+  "savannah": {image: fs_Img06, color: '#7dff00'},
+  "grassland": {image: fc_Img06, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img06, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img06, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img06, color: '#7dffd4'},
+  "wetland": {image: cap_Img06, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img06, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img06, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img06, color: '#dc113a'},
+  "pasture": {image: pa_Img06, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img06, color: '#d9a31e'},
+  "rice": {image: ar_Img06, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img06, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img06, color: '#b8850a'},
+  "urban_area": {image: au_Img06, color: '#353535'},
+  "aquaculture": {image: aq_Img06, color: '#bfbfbf'},
+};
+
+// year 2007
+var classes_2007 = {
+  "forest": {image: ff_Img07, color: '#218a21'},
+  "savannah": {image: fs_Img07, color: '#7dff00'},
+  "grassland": {image: fc_Img07, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img07, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img07, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img07, color: '#7dffd4'},
+  "wetland": {image: cap_Img07, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img07, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img07, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img07, color: '#dc113a'},
+  "pasture": {image: pa_Img07, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img07, color: '#d9a31e'},
+  "rice": {image: ar_Img07, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img07, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img07, color: '#b8850a'},
+  "urban_area": {image: au_Img07, color: '#353535'},
+  "aquaculture": {image: aq_Img07, color: '#bfbfbf'},
+};
+
+// year 2008
+var classes_2008 = {
+  "forest": {image: ff_Img08, color: '#218a21'},
+  "savannah": {image: fs_Img08, color: '#7dff00'},
+  "grassland": {image: fc_Img08, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img08, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img08, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img08, color: '#7dffd4'},
+  "wetland": {image: cap_Img08, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img08, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img08, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img08, color: '#dc113a'},
+  "pasture": {image: pa_Img08, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img08, color: '#d9a31e'},
+  "rice": {image: ar_Img08, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img08, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img08, color: '#b8850a'},
+  "urban_area": {image: au_Img08, color: '#353535'},
+  "aquaculture": {image: aq_Img08, color: '#bfbfbf'},
+};
+
+// year 2009
+var classes_2009 = {
+  "forest": {image: ff_Img09, color: '#218a21'},
+  "savannah": {image: fs_Img09, color: '#7dff00'},
+  "grassland": {image: fc_Img09, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img09, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img09, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img09, color: '#7dffd4'},
+  "wetland": {image: cap_Img09, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img09, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img09, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img09, color: '#dc113a'},
+  "pasture": {image: pa_Img09, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img09, color: '#d9a31e'},
+  "rice": {image: ar_Img09, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img09, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img09, color: '#b8850a'},
+  "urban_area": {image: au_Img09, color: '#353535'},
+  "aquaculture": {image: aq_Img09, color: '#bfbfbf'},
+};
+
+// year 2010
+var classes_2010 = {
+  "forest": {image: ff_Img10, color: '#218a21'},
+  "savannah": {image: fs_Img10, color: '#7dff00'},
+  "grassland": {image: fc_Img10, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img10, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img10, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img10, color: '#7dffd4'},
+  "wetland": {image: cap_Img10, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img10, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img10, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img10, color: '#dc113a'},
+  "pasture": {image: pa_Img10, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img10, color: '#d9a31e'},
+  "rice": {image: ar_Img10, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img10, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img10, color: '#b8850a'},
+  "urban_area": {image: au_Img10, color: '#353535'},
+  "aquaculture": {image: aq_Img10, color: '#bfbfbf'},
+};
+
+// year 2011
+var classes_2011 = {
+  "forest": {image: ff_Img11, color: '#218a21'},
+  "savannah": {image: fs_Img11, color: '#7dff00'},
+  "grassland": {image: fc_Img11, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img11, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img11, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img11, color: '#7dffd4'},
+  "wetland": {image: cap_Img11, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img11, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img11, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img11, color: '#dc113a'},
+  "pasture": {image: pa_Img11, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img11, color: '#d9a31e'},
+  "rice": {image: ar_Img11, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img11, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img11, color: '#b8850a'},
+  "urban_area": {image: au_Img11, color: '#353535'},
+  "aquaculture": {image: aq_Img11, color: '#bfbfbf'},
+};
+
+// year 2012
+var classes_2012 = {
+  "forest": {image: ff_Img12, color: '#218a21'},
+  "savannah": {image: fs_Img12, color: '#7dff00'},
+  "grassland": {image: fc_Img12, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img12, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img12, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img12, color: '#7dffd4'},
+  "wetland": {image: cap_Img12, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img12, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img12, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img12, color: '#dc113a'},
+  "pasture": {image: pa_Img12, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img12, color: '#d9a31e'},
+  "rice": {image: ar_Img12, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img12, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img12, color: '#b8850a'},
+  "urban_area": {image: au_Img12, color: '#353535'},
+  "aquaculture": {image: aq_Img12, color: '#bfbfbf'},
+};
+
+// year 2013
+var classes_2013 = {
+  "forest": {image: ff_Img13, color: '#218a21'},
+  "savannah": {image: fs_Img13, color: '#7dff00'},
+  "grassland": {image: fc_Img13, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img13, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img13, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img13, color: '#7dffd4'},
+  "wetland": {image: cap_Img13, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img13, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img13, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img13, color: '#dc113a'},
+  "pasture": {image: pa_Img13, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img13, color: '#d9a31e'},
+  "rice": {image: ar_Img13, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img13, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img13, color: '#b8850a'},
+  "urban_area": {image: au_Img13, color: '#353535'},
+  "aquaculture": {image: aq_Img13, color: '#bfbfbf'},
+};
+
+// year 2014
+var classes_2014 = {
+  "forest": {image: ff_Img14, color: '#218a21'},
+  "savannah": {image: fs_Img14, color: '#7dff00'},
+  "grassland": {image: fc_Img14, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img14, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img14, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img14, color: '#7dffd4'},
+  "wetland": {image: cap_Img14, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img14, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img14, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img14, color: '#dc113a'},
+  "pasture": {image: pa_Img14, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img14, color: '#d9a31e'},
+  "rice": {image: ar_Img14, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img14, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img14, color: '#b8850a'},
+  "urban_area": {image: au_Img14, color: '#353535'},
+  "aquaculture": {image: aq_Img14, color: '#bfbfbf'},
+};
+
+
+// year 2015
+var classes_2015 = {
+  "forest": {image: ff_Img15, color: '#218a21'},
+  "savannah": {image: fs_Img15, color: '#7dff00'},
+  "grassland": {image: fc_Img15, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img15, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img15, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img15, color: '#7dffd4'},
+  "wetland": {image: cap_Img15, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img15, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img15, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img15, color: '#dc113a'},
+  "pasture": {image: pa_Img15, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img15, color: '#d9a31e'},
+  "rice": {image: ar_Img15, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img15, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img15, color: '#b8850a'},
+  "urban_area": {image: au_Img15, color: '#353535'},
+  "aquaculture": {image: aq_Img15, color: '#bfbfbf'},
+};
+
+// year 2016
+var classes_2016 = {
+  "forest": {image: ff_Img16, color: '#218a21'},
+  "savannah": {image: fs_Img16, color: '#7dff00'},
+  "grassland": {image: fc_Img16, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img16, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img16, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img16, color: '#7dffd4'},
+  "wetland": {image: cap_Img16, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img16, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img16, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img16, color: '#dc113a'},
+  "pasture": {image: pa_Img16, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img16, color: '#d9a31e'},
+  "rice": {image: ar_Img16, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img16, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img16, color: '#b8850a'},
+  "urban_area": {image: au_Img16, color: '#353535'},
+  "aquaculture": {image: aq_Img16, color: '#bfbfbf'},
+};
+
+// year 2017
+var classes_2017 = {
+  "forest": {image: ff_Img17, color: '#218a21'},
+  "savannah": {image: fs_Img17, color: '#7dff00'},
+  "grassland": {image: fc_Img17, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img17, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img17, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img17, color: '#7dffd4'},
+  "wetland": {image: cap_Img17, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img17, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img17, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img17, color: '#dc113a'},
+  "pasture": {image: pa_Img17, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img17, color: '#d9a31e'},
+  "rice": {image: ar_Img17, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img17, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img17, color: '#b8850a'},
+  "urban_area": {image: au_Img17, color: '#353535'},
+  "aquaculture": {image: aq_Img17, color: '#bfbfbf'},
+};
+
+// year 2018
+var classes_2018 = {
+  "forest": {image: ff_Img18, color: '#218a21'},
+  "savannah": {image: fs_Img18, color: '#7dff00'},
+  "grassland": {image: fc_Img18, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img18, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img18, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img18, color: '#7dffd4'},
+  "wetland": {image: cap_Img18, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img18, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img18, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img18, color: '#dc113a'},
+  "pasture": {image: pa_Img18, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img18, color: '#d9a31e'},
+  "rice": {image: ar_Img18, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img18, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img18, color: '#b8850a'},
+  "urban_area": {image: au_Img18, color: '#353535'},
+  "aquaculture": {image: aq_Img18, color: '#bfbfbf'},
+};
+
+// year 2019
+var classes_2019 = {
+  "forest": {image: ff_Img19, color: '#218a21'},
+  "savannah": {image: fs_Img19, color: '#7dff00'},
+  "grassland": {image: fc_Img19, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img19, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img19, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img19, color: '#7dffd4'},
+  "wetland": {image: cap_Img19, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img19, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img19, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img19, color: '#dc113a'},
+  "pasture": {image: pa_Img19, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img19, color: '#d9a31e'},
+  "rice": {image: ar_Img19, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img19, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img19, color: '#b8850a'},
+  "urban_area": {image: au_Img19, color: '#353535'},
+  "aquaculture": {image: aq_Img19, color: '#bfbfbf'},
+};
+
+// year 2020
+var classes_2020 = {
+  "forest": {image: ff_Img20, color: '#218a21'},
+  "savannah": {image: fs_Img20, color: '#7dff00'},
+  "grassland": {image: fc_Img20, color: '#30cc30'},
+  "wooded_sandbank": {image: ra_Img20, color: '#f07f7f'},
+  "herbaceous_sandbank": {image: rh_Img20, color: '#ffb5bf'},
+  "salt_flat": {image: ap_Img20, color: '#7dffd4'},
+  "wetland": {image: cap_Img20, color: '#66cca8'},
+  "non_vegetation": {image: onv_Img20, color: '#7d308f'},
+  "river_lake_ocean": {image: rlo_Img20, color: '#007f7f'},
+  "beach_dune_sand": {image: pda_Img20, color: '#dc113a'},
+  "pasture": {image: pa_Img20, color: '#7f7f7f'},
+  "sugar_cane": {image: ca_Img20, color: '#d9a31e'},
+  "rice": {image: ar_Img20, color: '#bdb568'},
+  "other_temporary_crop": {image: olt_Img20, color: '#cc853d'},
+  "other_perennial_crop": {image: olp_Img20, color: '#b8850a'},
+  "urban_area": {image: au_Img20, color: '#353535'},
+  "aquaculture": {image: aq_Img20, color: '#bfbfbf'},
+};
+
+// function to map over classes and combine images with different colors:
+
+// year 2000
+var finalImage_2000 = Object.keys(classes).reduce(function(image, className) {
+  var classImage = classes[className].image;
+  var classColor = classes[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage);
+
+// year 2001
+var finalImage_2001 = Object.keys(classes_2001).reduce(function(image, className) {
+  var classImage = classes_2001[className].image;
+  var classColor = classes_2001[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage01);
+
+// year 2002
+var finalImage_2002 = Object.keys(classes_2002).reduce(function(image, className) {
+  var classImage = classes_2002[className].image;
+  var classColor = classes_2002[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage02);
+
+// year 2003
+var finalImage_2003 = Object.keys(classes_2003).reduce(function(image, className) {
+  var classImage = classes_2003[className].image;
+  var classColor = classes_2003[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage03);
+
+// year 2004
+var finalImage_2004 = Object.keys(classes_2004).reduce(function(image, className) {
+  var classImage = classes_2004[className].image;
+  var classColor = classes_2004[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage04);
+
+// year 2005
+var finalImage_2005 = Object.keys(classes_2005).reduce(function(image, className) {
+  var classImage = classes_2005[className].image;
+  var classColor = classes_2005[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage05);
+
+// year 2006
+var finalImage_2006 = Object.keys(classes_2006).reduce(function(image, className) {
+  var classImage = classes_2006[className].image;
+  var classColor = classes_2006[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage06);
+
+// year 2007
+var finalImage_2007 = Object.keys(classes_2007).reduce(function(image, className) {
+  var classImage = classes_2007[className].image;
+  var classColor = classes_2007[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage07);
+
+// year 2008
+var finalImage_2008 = Object.keys(classes_2008).reduce(function(image, className) {
+  var classImage = classes_2008[className].image;
+  var classColor = classes_2008[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage08);
+
+// year 2009
+var finalImage_2009 = Object.keys(classes_2009).reduce(function(image, className) {
+  var classImage = classes_2009[className].image;
+  var classColor = classes_2009[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage09);
+
+// year 2010
+var finalImage_2010 = Object.keys(classes_2010).reduce(function(image, className) {
+  var classImage = classes_2010[className].image;
+  var classColor = classes_2010[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage10);
+
+// year 2011
+var finalImage_2011 = Object.keys(classes_2011).reduce(function(image, className) {
+  var classImage = classes_2011[className].image;
+  var classColor = classes_2011[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage11);
+
+// year 2012
+var finalImage_2012 = Object.keys(classes_2012).reduce(function(image, className) {
+  var classImage = classes_2012[className].image;
+  var classColor = classes_2012[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage12);
+
+// year 2013
+var finalImage_2013 = Object.keys(classes_2013).reduce(function(image, className) {
+  var classImage = classes_2013[className].image;
+  var classColor = classes_2013[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage13);
+
+// year 2014
+var finalImage_2014 = Object.keys(classes_2014).reduce(function(image, className) {
+  var classImage = classes_2014[className].image;
+  var classColor = classes_2014[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage14);
+
+// year 2015
+var finalImage_2015 = Object.keys(classes_2015).reduce(function(image, className) {
+  var classImage = classes_2015[className].image;
+  var classColor = classes_2015[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage15);
+
+// year 2016
+var finalImage_2016 = Object.keys(classes_2016).reduce(function(image, className) {
+  var classImage = classes_2016[className].image;
+  var classColor = classes_2016[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage16);
+
+// year 2017
+var finalImage_2017 = Object.keys(classes_2017).reduce(function(image, className) {
+  var classImage = classes_2017[className].image;
+  var classColor = classes_2017[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage17);
+
+// year 2018
+var finalImage_2018 = Object.keys(classes_2018).reduce(function(image, className) {
+  var classImage = classes_2018[className].image;
+  var classColor = classes_2018[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage18);
+
+// year 2019
+var finalImage_2019 = Object.keys(classes_2019).reduce(function(image, className) {
+  var classImage = classes_2019[className].image;
+  var classColor = classes_2019[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage19);
+
+// year 2020
+var finalImage_2020 = Object.keys(classes_2020).reduce(function(image, className) {
+  var classImage = classes_2020[className].image;
+  var classColor = classes_2020[className].color;
+  var coloredImage = classImage.visualize({palette: [classColor]});
+  return image.blend(coloredImage);
+}, blankImage20);
+
+// visualization
+
+Map.addLayer(finalImage_2000, {}, 'Classificação Final 2000');
+//Map.addLayer(finalImage_2005, {}, 'Classificação Final 2005');
+Map.addLayer(finalImage_2010, {}, 'Classificação Final 2010');
+//Map.addLayer(finalImage_2015, {}, 'Classificação Final 2015');
+Map.addLayer(finalImage_2020, {}, 'Classificação Final 2020');
+
+
+// export images to assets
+/*
+Export.image.toAsset({
+  image: finalImage_2018,
+  description: 'cnvMangrove_2018',
+  assetId: 'finalImage_2018',
+  scale: 30,
+  maxPixels: 1e13
+});
+*/
+
+
+// Bottom map
+
+/*
+// Create a panel with vertical flow layout.
+
+var panel = ui.Panel({
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '500px'}
+});
+
+var title = ui.Label({
+  value: 'Direct suppression of mangroves by different land uses and land covers in Brazil between 2000 and 2020',
+  style: {'fontSize': '24px'}
+});
+panel.add(title)
+
+var msg = ['Mangrove areas converted to different land use and land cover classes from the MapBiomas database.',
+           'All areas represent mangrove conversion in Brazil in the years 2000, 2005, 2010, 2015 and 2020.',
+           'Colors indicate the land use and land cover classes that occupied areas classified as mangrove forest in the previous year.'].join('\r\n');
+var intro = ui.Label(msg);
+panel.add(intro)
+
+// creating buttons and descrition
+
+// loss and conversion events in 2000 - label + button
+
+var load_loss_all_label_2000 = ui.Label("1. Map of all conversion events (2000)");
+panel.add(load_loss_all_label_2000)
+var loss_all_button_2000 = ui.Button({label: 'Load Conversion Events (2000)', style: {stretch: 'horizontal'}})
+panel.add(loss_all_button_2000);
+
+// loss and conversion events in 2005 - label + button
+var load_loss_all_label_2005 = ui.Label("2. Map of all loss and conversion events (2005)");
+panel.add(load_loss_all_label_2005)
+var loss_all_button_2005 = ui.Button({label: 'Load Loss and Conversion Events (2005)', style: {stretch: 'horizontal'}})
+panel.add(loss_all_button_2005);
+
+// loss and conversion events in 2010 - label + button
+
+var load_loss_all_label_2010 = ui.Label("3. Map of all conversion events (2010)");
+panel.add(load_loss_all_label_2010)
+var loss_all_button_2010 = ui.Button({label: 'Load Conversion Events (2010)', style: {stretch: 'horizontal'}})
+panel.add(loss_all_button_2010);
+
+// loss and conversion events in 2015 - label + button
+var load_loss_all_label_2015 = ui.Label("4. Map of all conversion events (2015)");
+panel.add(load_loss_all_label_2015)
+var loss_all_button_2015 = ui.Button({label: 'Load Conversion Events (2015)', style: {stretch: 'horizontal'}})
+panel.add(loss_all_button_2015);
+
+// loss and conversion events in 2020 - label + button
+
+var load_loss_all_label_2020 = ui.Label("1. Map of all conversion events (2020)");
+panel.add(load_loss_all_label_2020)
+var loss_all_button_2020 = ui.Button({label: 'Load Conversion Events (2020)', style: {stretch: 'horizontal'}})
+panel.add(loss_all_button_2020);
+
+// creating legend
+
+// set position of panel
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+ 
+// create legend title
+var legendTitle = ui.Label({
+  value: 'Classes of LULC',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+    }
+});
+ 
+// add the title to the panel
+legend.add(legendTitle);
+ 
+// creates and styles 1 row of the legend.
+var makeRow = function(color, name) {
+ 
+      // create the label that is actually the colored box.
+      var colorBox = ui.Label({
+        style: {
+          backgroundColor: '#' + color,
+          // use padding to give the box height and width.
+          padding: '8px',
+          margin: '0 0 4px 0'
+        }
+      });
+ 
+      // create the label filled with the description text.
+      var description = ui.Label({
+        value: name,
+        style: {margin: '0 0 4px 6px'}
+      });
+ 
+      // return the panel
+      return ui.Panel({
+        widgets: [colorBox, description],
+        layout: ui.Panel.Layout.Flow('horizontal')
+      });
+};
+ 
+// palette with the colors
+
+var palette = ['218a21', '7dff00', '30cc30', 'f07f7f', 'ffb5bf', '7dffd4', '66cca8', '7d308f', '007f7f', 'dc113a', '7f7f7f', 'd9a31e', 'bdb568', 'cc853d', 'b8850a', '353535', 'bfbfbf']
+
+// name of the legend
+
+var names = ["Forest", "Savannah", "Grassland", "Wooded sandbank", "Herbaceous sandbank", 
+             "Salt flat", "Wetland", "Other non vegetation area", "River, lake and ocean", 
+             "Beach, dune and sand spot", "Pasture", "Sugar cane", "Rice", 
+             "Other temporary crop", "Other perennial crop", "Urban area", "Aquaculture"];
+ 
+// add color and and names
+
+for (var i = 0; i < 16; i++) {
+  legend.add(makeRow(palette[i], names[i]));
+  }  
+ 
+
+// load functions
+
+var load_cnv_2000 = function() {
+  Map.clear();
+  var image_temp = ee.Image('users/bieltofanelo/finalImage_2000');
+  Map.setCenter(-43.1542, -22.8545, 11)
+  Map.addLayer(image_temp, {}, 'conversion Mangrove 2000');
+  Map.add(legend);
+}
+loss_all_button_2000.onClick(load_cnv_2000);
+
+var load_cnv_2005 = function() {
+  Map.clear();
+  var image_temp = ee.Image('users/bieltofanelo/finalImage_2005');
+  image_temp = image_temp.updateMask(image_temp.neq(0));
+  Map.setCenter(-43.1542, -22.8545, 11)
+  Map.addLayer(image_temp, {}, 'conversion Mangrove 2005');
+  Map.add(legend);
+}
+loss_all_button_2005.onClick(load_cnv_2005);
+
+var load_cnv_2010 = function() {
+  Map.clear();
+  var image_temp = ee.Image('users/bieltofanelo/finalImage_2010');
+  image_temp = image_temp.updateMask(image_temp.neq(0));
+  Map.setCenter(-43.1542, -22.8545, 11)
+  Map.addLayer(image_temp, {}, 'conversion Mangrove 2010)');
+  Map.add(legend);
+}
+loss_all_button_2010.onClick(load_cnv_2010);
+
+var load_cnv_2015 = function() {
+  Map.clear();
+  var image_temp = ee.Image('users/bieltofanelo/finalImage_2015');
+  Map.setCenter(-43.1542, -22.8545, 11)
+  Map.addLayer(image_temp, {}, 'conversion Mangrove 2015');
+  Map.add(legend);
+}
+loss_all_button_2015.onClick(load_cnv_2015);
+
+var load_cnv_2020 = function() {
+  Map.clear();
+  var image_temp = ee.Image('users/bieltofanelo/finalImage_2020');
+  Map.setCenter(-43.1542, -22.8545, 11)
+  Map.addLayer(image_temp, {}, 'conversion Mangrove 2015');
+  Map.add(legend);
+}
+loss_all_button_2020.onClick(load_cnv_2020);
+
+// initialization
+
+ui.root.add(panel);
+*/
+
+
+
+/*
+// Sider map
+
+// Create painel
+var panel = ui.Panel({
+  style: {
+    width: '400px',
+    padding: '10px',
+    backgroundColor: 'white',
+    border: '1px solid gray'
+  }
+});
+
+// Set available years
+var availableYears = [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020];
+
+// Create slider
+var slider = ui.Slider({
+  min: availableYears[0],
+  max: availableYears[availableYears.length - 1],
+  step: 1,
+  style: { width: '100%' }, // Esticar a linha do slider
+  onChange: updateMap
+});
+
+
+// Create a panel for year labels
+var yearsLabelsPanel = ui.Panel({
+  layout: ui.Panel.Layout.flow('horizontal')
+});
+
+// Add labels to available years
+var yearsLabel = ui.Label("Years", {
+  fontWeight: 'bold',
+  textAlign: 'center',
+  width: '100%'
+});
+yearsLabelsPanel.add(yearsLabel);
+yearsLabelsPanel.add(ui.Label({style: {stretch: 'horizontal', width: '20px'}}));
+
+// Add the labels panel to the main panel
+panel.add(yearsLabelsPanel);
+
+// Add slider to dashboard
+panel.add(slider);
+
+// Map update function
+function updateMap(value) {
+  // Remover todas as camadas do mapa
+  Map.layers().reset();
+
+  // Build the image name corresponding to the selected year
+  var imageName = 'finalImage_' + value;
+
+  // Get the Asset image
+  var image = ee.Image('users/bieltofanelo/' + imageName);
+
+  // Add the image to the map
+  Map.addLayer(image, {}, imageName);
+  //Map.setCenter(-49.067957, -11.608759, 5)
+}
+
+// Set slider initial value
+slider.setValue(availableYears[0]);
+
+// Add the panel to the map
+Map.add(panel);
+
+// Legend
+var legendPanel = ui.Panel({
+  style: {
+    position: 'bottom-right',
+    padding: '8px',
+    width: '300px'
+  }
+});
+
+
+var legendTitle = ui.Panel({
+  widgets: [
+    ui.Label('Mangrove areas converted to different land use and land cover classes from the MapBiomas database. All areas represent mangrove conversion in Brazil in the years 2000, 2005, 2010, 2015 and 2020. Colors indicate the land use and land cover (LULC) classes that occupied areas classified as mangrove forest in the previous year.'),
+    ui.Label(''), // Adiciona uma linha em branco
+    ui.Label('Classes of LULC', { fontWeight: 'bold' }) // Define o texto em negrito
+  ],
+  style: { whiteSpace: 'pre-wrap' } // Permite que o texto quebre a linha automaticamente
+});
+legendPanel.add(legendTitle);
+
+var palette = ['218a21', '7dff00', '30cc30', 'f07f7f', 'ffb5bf', '7dffd4', '66cca8', '7d308f', '007f7f', 'dc113a', '7f7f7f', 'd9a31e', 'bdb568', 'cc853d', 'b8850a', '353535', 'bfbfbf'];
+var names = [
+  "Forest", "Savannah", "Grassland", "Wooded sandbank", "Herbaceous sandbank", 
+  "Salt flat", "Wetland", "Other non-vegetation area", "River, lake and ocean", 
+  "Beach, dune and sand spot", "Pasture", "Sugar cane", "Rice", 
+  "Other temporary crop", "Other perennial crop", "Urban area", "Aquaculture"
+];
+
+for (var i = 0; i < palette.length; i++) {
+  legendPanel.add(makeRow(palette[i], names[i]));
+}
+
+Map.add(legendPanel);
+
+// Function to create legend lines
+function makeRow(color, name) {
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: '#' + color,
+      padding: '8px',
+      margin: '0 0 4px 0'
+    }
+  });
+
+  var description = ui.Label({
+    value: name,
+    style: { margin: '0 0 4px 6px' }
+  });
+
+  return ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+}
+*/
