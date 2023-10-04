@@ -1,22 +1,22 @@
 #  Geospatial analysis using Google Earth Engine program
      
-#  Gabriel Tofanelo Vanin
-#  São Paulo State University, Institute of Biociences
-#  São Vicente-SP, 11330-900, Brazil
-#  biel.tofanelo@gamil.com
+  Gabriel Tofanelo Vanin
+  São Paulo State University, Institute of Biociences
+  São Vicente-SP, 11330-900, Brazil
+  biel.tofanelo@gamil.com
 
-#  Eduardo Ribeiro Lacerda
-#  International Institute for Sustainability
-#  Jardim Botânico-RJ, 2240-320, Brazil
-#  eduardolacerdageo@gmail.com
+  Eduardo Ribeiro Lacerda
+  International Institute for Sustainability
+  Jardim Botânico-RJ, 2240-320, Brazil
+  eduardolacerdageo@gmail.com
 
-#  Gustavo Maruyama Mori
-#  São Paulo State University, Institute of Biociences
-#  São Vicente-SP, 11330-900
-#  hustavo.mori@unesp.br
+  Gustavo Maruyama Mori
+  São Paulo State University, Institute of Biociences
+  São Vicente-SP, 11330-900
+  hustavo.mori@unesp.br
 
-#  Date of data collection: 2023/04
-#  language: english
+  Date of data collection: 2023/04
+  language: english
 
 #  Data and file Overview
 
